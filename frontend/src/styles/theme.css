@@ -1,0 +1,51 @@
+/* Custom theme overrides */
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Code highlighting custom styles */
+.code-highlight-line {
+  background-color: rgba(255, 220, 0, 0.15);
+  display: block;
+  margin-left: -16px;
+  margin-right: -16px;
+  padding-left: 12px;
+  border-left: 4px solid #ffd700;
+}
+
+/* Severity colors */
+.severity-critical {
+  --severity-color: theme('colors.red.600');
+}
+
+.severity-high {
+  --severity-color: theme('colors.orange.500');
+}
+
+.severity-medium {
+  --severity-color: theme('colors.yellow.500');
+}
+
+.severity-low {
+  --severity-color: theme('colors.blue.500');
+}
+
+.severity-info {
+  --severity-color: theme('colors.gray.500');
+}
