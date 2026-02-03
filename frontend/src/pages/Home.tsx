@@ -1,105 +1,72 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Code2, Shield, Zap, Github } from 'lucide-react'
 import RepoUploader from '@/components/RepoUploader'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { startReview } from '@/api/reviewApi'
 
 export default function Home() {
   const navigate = useNavigate()
-  const [isStartingReview, setIsStartingReview] = useState(false)
 
-  const handleRepoUploaded = async (repoId: string, repoName: string) => {
-    setIsStartingReview(true)
+  const handleRepoUploaded = async (repoId: string) => {
     try {
       const { review_id } = await startReview(repoId)
       navigate(`/review/${review_id}`)
     } catch (error) {
       console.error('Failed to start review:', error)
-      setIsStartingReview(false)
     }
   }
 
   const features = [
     {
-      icon: <Code2 className="h-8 w-8 text-blue-500" />,
-      title: 'Bug Detection',
-      description: 'Find potential bugs, logic errors, and code smells automatically'
+      icon: <Code2 className="h-6 w-6" />,
+      title: 'Architectural Analysis',
+      description: 'Sophisticated evaluation of code structure, design patterns, and systemic logic.'
     },
     {
-      icon: <Shield className="h-8 w-8 text-green-500" />,
-      title: 'Security Analysis',
-      description: 'Detect security vulnerabilities following OWASP guidelines'
+      icon: <Shield className="h-6 w-6" />,
+      title: 'Security Assurance',
+      description: 'Rigorous detection of vulnerabilities and adherence to security best practices.'
     },
     {
-      icon: <Zap className="h-8 w-8 text-yellow-500" />,
-      title: 'Performance Review',
-      description: 'Identify performance bottlenecks and optimization opportunities'
+      icon: <Zap className="h-6 w-6" />,
+      title: 'Performance Insight',
+      description: 'Precise identification of bottlenecks and elegant optimization strategies.'
     }
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
-      <div className="container mx-auto px-4 py-16">
-        {/* Hero Section */}
-        <div className="text-center mb-16">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <Github className="h-12 w-12" />
-            <h1 className="text-4xl font-bold">Coder</h1>
+    <div className="min-h-screen flex flex-col relative overflow-hidden">
+      {/* Decorative background elements */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[600px] bg-[radial-gradient(circle_at_center,rgba(40,40,55,0.03)_0,transparent_70%)] pointer-events-none"></div>
+      <div className="absolute top-[-10%] right-[-5%] w-[40%] h-[40%] bg-accent/5 blur-[120px] rounded-full pointer-events-none animate-float"></div>
+      <div className="absolute bottom-[10%] left-[-5%] w-[30%] h-[30%] bg-accent/3 blur-[100px] rounded-full pointer-events-none animate-float" style={{ animationDelay: '-4s' }}></div>
+      
+      <main className="flex-grow flex items-center justify-center relative z-10">
+        <div className="container mx-auto px-6">
+          {/* Hero Section */}
+          <div className="max-w-4xl mx-auto text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary text-secondary-foreground text-xs font-medium tracking-wider uppercase mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+              <Github className="h-3 w-3" />
+              <span>AI-Driven Review Engine</span>
+            </div>
+            <h1 className="text-5xl md:text-7xl font-serif mb-8 tracking-tight leading-tight animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-200">
+              CodeReviewX
+            </h1>
+            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto font-sans leading-relaxed animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300">
+              Refined code review for the discerning developer.
+            </p>
           </div>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            AI-powered code review system that analyzes your code for bugs, 
-            security vulnerabilities, and performance issues.
-          </p>
-        </div>
 
-        {/* Upload Section */}
-        <div className="flex justify-center mb-16">
-          <RepoUploader onRepoUploaded={handleRepoUploaded} />
-        </div>
-
-        {/* Features Section */}
-        <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {features.map((feature, index) => (
-            <Card key={index} className="text-center">
-              <CardHeader>
-                <div className="flex justify-center mb-2">
-                  {feature.icon}
-                </div>
-                <CardTitle className="text-lg">{feature.title}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>{feature.description}</CardDescription>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* How it works */}
-        <div className="mt-16 max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-8">How it works</h2>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
-                1
+          {/* Upload Section */}
+          <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-500">
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-accent/5 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+              <div className="relative">
+                <RepoUploader onRepoUploaded={handleRepoUploaded} />
               </div>
-              <p>Upload your GitHub repository URL</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
-                2
-              </div>
-              <p>Our AI agents analyze your code in parallel</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
-                3
-              </div>
-              <p>Get detailed findings with actionable suggestions</p>
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

@@ -27,13 +27,23 @@ export function useReviewStatus(reviewId: string): UseReviewStatusResult {
   }, [reviewId])
 
   useEffect(() => {
-    fetchStatus()
-
-    // Poll for status updates while processing
-    const interval = setInterval(() => {
-      if (status === 'pending' || status === 'processing') {
-        fetchStatus()
+    // Initial fetch
+    let isMounted = true
+    const initFetch = async () => {
+      if (isMounted) {
+        await fetchStatus()
       }
+    }
+    initFetch()
+    return () => { isMounted = false }
+  }, [fetchStatus])
+
+  useEffect(() => {
+    // Poll for status updates while processing
+    if (status !== 'pending' && status !== 'processing') return
+
+    const interval = setInterval(() => {
+      fetchStatus()
     }, 2000)
 
     return () => clearInterval(interval)

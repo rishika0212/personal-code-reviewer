@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ReviewResponse, ReviewStatus, RepoInfo } from '@/types/review'
+import type { ReviewResponse, ReviewStatus, RepoInfo, FileNode } from '@/types/review'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
@@ -30,7 +30,7 @@ export async function getReviewResults(reviewId: string): Promise<ReviewResponse
   return response.data
 }
 
-export async function getRepoFiles(repoId: string): Promise<{ files: any[] }> {
-  const response = await api.get(`/repo/files/${repoId}`)
+export async function getRepoFiles(repoId: string): Promise<{ files: FileNode[] }> {
+  const response = await api.get<{ files: FileNode[] }>(`/repo/files/${repoId}`)
   return response.data
 }

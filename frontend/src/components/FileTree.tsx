@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, FolderOpen } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, FileCode, FileText, Settings } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface FileNode {
   name: string
@@ -21,6 +22,17 @@ interface TreeNodeProps {
   depth?: number
 }
 
+function getFileIcon(name: string) {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (['py', 'js', 'ts', 'tsx', 'cpp', 'c', 'go', 'rust', 'rb', 'php'].includes(ext || '')) {
+    return <FileCode className="h-3.5 w-3.5" />
+  }
+  if (['json', 'yaml', 'yml', 'toml', 'config'].includes(ext || '')) {
+    return <Settings className="h-3.5 w-3.5" />
+  }
+  return <FileText className="h-3.5 w-3.5" />
+}
+
 function TreeNode({ node, onFileSelect, selectedFile, depth = 0 }: TreeNodeProps) {
   const [isOpen, setIsOpen] = useState(depth < 2)
   const isSelected = selectedFile === node.path
@@ -37,36 +49,44 @@ function TreeNode({ node, onFileSelect, selectedFile, depth = 0 }: TreeNodeProps
   return (
     <div>
       <div
-        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent rounded-sm ${
-          isSelected ? 'bg-accent text-accent-foreground' : ''
-        }`}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        className={cn(
+          "flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-sm transition-all font-sans group relative mb-[1px]",
+          isSelected 
+            ? "bg-accent/5 text-accent font-medium" 
+            : "text-foreground/70 hover:bg-secondary/40 hover:text-foreground"
+        )}
+        style={{ paddingLeft: `${depth * 12 + 12}px` }}
         onClick={handleClick}
       >
-        {isDirectory ? (
-          <>
-            {isOpen ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )}
-            {isOpen ? (
-              <FolderOpen className="h-4 w-4 text-yellow-500" />
-            ) : (
-              <Folder className="h-4 w-4 text-yellow-500" />
-            )}
-          </>
-        ) : (
-          <>
-            <span className="w-4" />
-            <File className="h-4 w-4 text-muted-foreground" />
-          </>
+        {isSelected && (
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-accent rounded-full" />
         )}
-        <span className="text-sm truncate">{node.name}</span>
+        <div className="flex items-center justify-center w-4 h-4">
+          {isDirectory ? (
+            isOpen ? (
+              <ChevronDown className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+            ) : (
+              <ChevronRight className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+            )
+          ) : null}
+        </div>
+        
+        <div className={cn(
+          "flex-shrink-0",
+          isSelected ? "text-accent" : "text-muted-foreground/60 group-hover:text-muted-foreground"
+        )}>
+          {isDirectory ? (
+            isOpen ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />
+          ) : (
+            getFileIcon(node.name)
+          )}
+        </div>
+        
+        <span className="text-xs truncate tracking-tight">{node.name}</span>
       </div>
       
       {isDirectory && isOpen && node.children && (
-        <div>
+        <div className="mt-0.5">
           {node.children.map((child) => (
             <TreeNode
               key={child.path}
@@ -84,7 +104,7 @@ function TreeNode({ node, onFileSelect, selectedFile, depth = 0 }: TreeNodeProps
 
 export default function FileTree({ files, onFileSelect, selectedFile }: FileTreeProps) {
   return (
-    <div className="border rounded-lg p-2 bg-card overflow-auto max-h-[600px]">
+    <div className="py-2 bg-transparent overflow-auto max-h-[600px] scrollbar-hide">
       {files.map((node) => (
         <TreeNode
           key={node.path}
