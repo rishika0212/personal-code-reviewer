@@ -19,6 +19,17 @@ class GitHubLoader:
         self.clone_dir.mkdir(parents=True, exist_ok=True)
         self.file_filter = FileFilter()
         self._repos: Dict[str, Path] = {}
+        self._recover_repos()
+    
+    def _recover_repos(self):
+        """Recover existing repositories from clone directory"""
+        if not self.clone_dir.exists():
+            return
+            
+        for item in self.clone_dir.iterdir():
+            if item.is_dir() and len(item.name) == 8:
+                self._repos[item.name] = item
+                logger.info(f"Recovered repository: {item.name}")
     
     async def clone_repo(self, url: str) -> RepoInfo:
         """Clone a GitHub repository"""
@@ -59,7 +70,7 @@ class GitHubLoader:
             raise ValueError(f"Repository {repo_id} not found")
         
         repo_dir = self._repos[repo_id]
-        return self._build_file_tree(repo_dir)
+        return self._build_file_tree(repo_dir, repo_dir)
     
     def get_file_content(self, repo_id: str, file_path: str) -> str:
         """Get the content of a specific file"""
@@ -76,15 +87,15 @@ class GitHubLoader:
             if path.is_file() and self.file_filter.should_include(path):
                 files.append(path)
         return files
-    
-    def _build_file_tree(self, directory: Path, prefix: str = "") -> List[Dict[str, Any]]:
+
+    def _build_file_tree(self, directory: Path, repo_root: Path) -> List[Dict[str, Any]]:
         """Build a file tree structure"""
         tree = []
         for item in sorted(directory.iterdir()):
             if item.name.startswith("."):
                 continue
             
-            rel_path = str(item.relative_to(self._repos.get(prefix, directory)))
+            rel_path = str(item.relative_to(repo_root))
             
             if item.is_dir():
                 if self.file_filter.should_include_dir(item):
@@ -92,7 +103,7 @@ class GitHubLoader:
                         "name": item.name,
                         "type": "directory",
                         "path": rel_path,
-                        "children": self._build_file_tree(item, prefix)
+                        "children": self._build_file_tree(item, repo_root)
                     })
             elif self.file_filter.should_include(item):
                 tree.append({
@@ -128,3 +139,7 @@ class GitHubLoader:
         if repo_id in self._repos:
             shutil.rmtree(self._repos[repo_id], ignore_errors=True)
             del self._repos[repo_id]
+
+
+# Singleton instance
+github_loader = GitHubLoader()

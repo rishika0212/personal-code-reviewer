@@ -12,6 +12,7 @@ class ReviewRequest(BaseModel):
 class ReviewFinding(BaseModel):
     """A single finding from the review"""
     id: str
+    agent_name: str
     severity: str  # critical, high, medium, low, info
     category: str
     title: str

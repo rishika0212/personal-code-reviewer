@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # ChromaDB
     CHROMA_HOST: str = "localhost"
     CHROMA_PORT: int = 8001
+    CHROMA_PERSIST_DIRECTORY: str = "./chroma_db"
     CHROMA_COLLECTION: str = "code_reviews"
     
     # GitHub

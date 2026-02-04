@@ -42,12 +42,20 @@ export default function AgentComments({ findings, onFindingClick }: AgentComment
           </div>
           
           <div className="grid gap-4">
-            {categoryFindings.map((finding) => (
-              <div
-                key={finding.id}
-                className="group relative bg-white border border-border/50 rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:border-accent/20 transition-all duration-300 cursor-pointer"
-                onClick={() => onFindingClick?.(finding)}
-              >
+            {categoryFindings.map((finding) => {
+              const getAgentColor = (name: string) => {
+                const lowerName = name.toLowerCase()
+                if (lowerName.includes('security')) return 'border-l-red-500'
+                if (lowerName.includes('optimization') || lowerName.includes('performance')) return 'border-l-green-500'
+                return 'border-l-yellow-500' // Default for code quality
+              }
+
+              return (
+                <div
+                  key={finding.id}
+                  className={`group relative bg-white border border-border/50 border-l-4 ${getAgentColor(finding.agent_name)} rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:border-accent/20 transition-all duration-300 cursor-pointer`}
+                  onClick={() => onFindingClick?.(finding)}
+                >
                 <div className="p-5 sm:p-6">
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex-grow space-y-1.5">
@@ -99,7 +107,7 @@ export default function AgentComments({ findings, onFindingClick }: AgentComment
                   )}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
       ))}

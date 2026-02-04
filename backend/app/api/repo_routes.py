@@ -2,11 +2,10 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from typing import Dict, Any
 
 from schemas.repo import RepoInput, RepoInfo
-from loaders.github_loader import GitHubLoader
+from loaders.github_loader import github_loader
 from utils.logger import logger
 
 router = APIRouter()
-github_loader = GitHubLoader()
 
 
 @router.post("/github", response_model=RepoInfo)
@@ -46,3 +45,14 @@ async def get_repo_files(repo_id: str):
     except Exception as e:
         logger.error(f"Failed to get files: {e}")
         raise HTTPException(status_code=404, detail="Repository not found")
+
+
+@router.get("/content/{repo_id}")
+async def get_file_content(repo_id: str, path: str):
+    """Get content of a file in a repository"""
+    try:
+        content = github_loader.get_file_content(repo_id, path)
+        return {"repo_id": repo_id, "path": path, "content": content}
+    except Exception as e:
+        logger.error(f"Failed to get file content: {e}")
+        raise HTTPException(status_code=404, detail=f"File {path} not found")

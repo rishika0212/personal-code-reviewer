@@ -10,6 +10,7 @@ from utils.logger import logger
 @dataclass
 class AgentFinding:
     """Represents a single finding from an agent"""
+    agent_name: str
     severity: str  # critical, high, medium, low, info
     category: str
     title: str
@@ -115,6 +116,7 @@ If no issues found, return {{"findings": []}}
                 
                 for f in data.get("findings", []):
                     findings.append(AgentFinding(
+                        agent_name=self.name,
                         severity=f.get("severity", "info"),
                         category=f.get("category", "general"),
                         title=f.get("title", "Untitled"),

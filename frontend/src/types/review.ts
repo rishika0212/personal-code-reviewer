@@ -1,5 +1,6 @@
 export interface ReviewFinding {
   id: string
+  agent_name: string
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
   category: string
   title: string

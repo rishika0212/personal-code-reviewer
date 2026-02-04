@@ -11,9 +11,8 @@ class ChromaStore:
     """ChromaDB vector store for code embeddings"""
     
     def __init__(self):
-        self.client = chromadb.HttpClient(
-            host=settings.CHROMA_HOST,
-            port=settings.CHROMA_PORT,
+        self.client = chromadb.PersistentClient(
+            path=settings.CHROMA_PERSIST_DIRECTORY,
             settings=ChromaSettings(anonymized_telemetry=False)
         )
         self._collections: Dict[str, Any] = {}

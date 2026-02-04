@@ -9,8 +9,8 @@ import FileTree from '@/components/FileTree'
 import CodeViewer from '@/components/CodeViewer'
 import AgentComments from '@/components/AgentComments'
 import { useReviewStatus } from '@/hooks/useReviewStatus'
-import { getReviewResults } from '@/api/reviewApi'
-import type { ReviewResponse, ReviewFinding } from '@/types/review'
+import { getReviewResults, getRepoFiles, getFileContent } from '@/api/reviewApi'
+import type { ReviewResponse, ReviewFinding, FileNode } from '@/types/review'
 
 export default function Review() {
   const { reviewId } = useParams<{ reviewId: string }>()
@@ -18,12 +18,17 @@ export default function Review() {
   const [results, setResults] = useState<ReviewResponse | null>(null)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>('')
+  const [fileTree, setFileTree] = useState<FileNode[]>([])
 
   const fetchResults = useCallback(async () => {
     if (!reviewId) return
     try {
       const data = await getReviewResults(reviewId)
       setResults(data)
+      
+      // Fetch file tree
+      const treeData = await getRepoFiles(data.repo_id)
+      setFileTree(treeData.files)
     } catch (err) {
       console.error('Failed to fetch results:', err)
     }
@@ -42,10 +47,16 @@ export default function Review() {
     return () => { isMounted = false }
   }, [status, reviewId, fetchResults])
 
-  const handleFileSelect = (path: string) => {
+  const handleFileSelect = async (path: string) => {
+    if (!results) return
     setSelectedFile(path)
-    // In a real app, fetch file content from API
-    setFileContent('// File content would be loaded here\n\nfunction example() {\n  console.log("This is a placeholder for file content");\n}')
+    try {
+      const { content } = await getFileContent(results.repo_id, path)
+      setFileContent(content)
+    } catch (err) {
+      console.error('Failed to fetch file content:', err)
+      setFileContent('// Error loading file content')
+    }
   }
 
   const handleFindingClick = (finding: ReviewFinding) => {
@@ -188,12 +199,7 @@ export default function Review() {
                 </CardHeader>
                 <CardContent className="p-0">
                   <FileTree
-                    files={[
-                      { name: 'src', path: 'src', type: 'directory', children: [
-                        { name: 'main.py', path: 'src/main.py', type: 'file' },
-                        { name: 'utils.py', path: 'src/utils.py', type: 'file' },
-                      ]}
-                    ]}
+                    files={fileTree}
                     onFileSelect={handleFileSelect}
                     selectedFile={selectedFile || undefined}
                   />

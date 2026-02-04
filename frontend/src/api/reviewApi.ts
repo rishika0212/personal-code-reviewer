@@ -34,3 +34,8 @@ export async function getRepoFiles(repoId: string): Promise<{ files: FileNode[] 
   const response = await api.get<{ files: FileNode[] }>(`/repo/files/${repoId}`)
   return response.data
 }
+
+export async function getFileContent(repoId: string, path: string): Promise<{ content: string }> {
+  const response = await api.get<{ content: string }>(`/repo/content/${repoId}`, { params: { path } })
+  return response.data
+}

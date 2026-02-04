@@ -1,5 +1,7 @@
 import uuid
 import asyncio
+import json
+from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional
 from dataclasses import dataclass, field
 
@@ -10,8 +12,8 @@ from agents.base_agent import AgentFinding
 from indexing.chunker import CodeChunker, CodeChunk
 from indexing.embeddings import EmbeddingService
 from vectorstore.chroma_store import chroma_store
-from loaders.github_loader import GitHubLoader
-from schemas.review import ReviewRequest, ReviewResponse, ReviewFinding
+from loaders.github_loader import github_loader
+from schemas.review import ReviewRequest, ReviewResponse, ReviewFinding, ReviewStatus
 from config import settings
 from utils.logger import logger
 
@@ -37,9 +39,35 @@ class ReviewManager:
         ]
         self.chunker = CodeChunker()
         self.embeddings = EmbeddingService()
-        self.github_loader = GitHubLoader()
+        self.github_loader = github_loader
         self._sessions: Dict[str, ReviewSession] = {}
         self._results: Dict[str, ReviewResponse] = {}
+        self.review_status: Dict[str, ReviewStatus] = {}
+        self.storage_path = Path("reviews.json")
+        self._load_from_disk()
+    
+    def _save_to_disk(self):
+        """Save status and results to disk"""
+        try:
+            data = {
+                "status": {k: v.model_dump() for k, v in self.review_status.items()},
+                "results": {k: v.model_dump() for k, v in self._results.items()}
+            }
+            self.storage_path.write_text(json.dumps(data), encoding='utf-8')
+        except Exception as e:
+            logger.error(f"Failed to save to disk: {e}")
+
+    def _load_from_disk(self):
+        """Load status and results from disk"""
+        if not self.storage_path.exists():
+            return
+        try:
+            data = json.loads(self.storage_path.read_text(encoding='utf-8'))
+            self.review_status = {k: ReviewStatus(**v) for k, v in data.get("status", {}).items()}
+            self._results = {k: ReviewResponse(**v) for k, v in data.get("results", {}).items()}
+            logger.info(f"Loaded {len(self.review_status)} reviews from disk")
+        except Exception as e:
+            logger.error(f"Failed to load from disk: {e}")
     
     def create_review(self, request: ReviewRequest) -> str:
         """Create a new review session"""
@@ -49,6 +77,13 @@ class ReviewManager:
             review_id=review_id,
             repo_id=request.repo_id
         )
+        
+        self.review_status[review_id] = ReviewStatus(
+            review_id=review_id,
+            status="pending",
+            progress=0
+        )
+        self._save_to_disk()
         
         return review_id
     
@@ -90,8 +125,34 @@ class ReviewManager:
             for agent in self.agents:
                 logger.info(f"Running agent: {agent.name}")
                 
-                # Get relevant chunks for this agent
-                relevant_chunks = chunks[:settings.MAX_CHUNKS_PER_REVIEW]
+                # Get relevant chunks for this agent using vector search
+                query_text = agent._get_default_prompt()
+                query_embedding = await self.embeddings.embed_text(query_text)
+                
+                collection_name = f"review_{review_id}"
+                results = chroma_store.query(
+                    collection_name=collection_name,
+                    query_embedding=query_embedding,
+                    n_results=settings.MAX_CHUNKS_PER_REVIEW
+                )
+                
+                # Reconstruct CodeChunks from results
+                relevant_chunks = []
+                if results["documents"]:
+                    for i, doc in enumerate(results["documents"][0]):
+                        meta = results["metadatas"][0][i]
+                        relevant_chunks.append(CodeChunk(
+                            content=doc,
+                            file_path=meta["file_path"],
+                            start_line=meta["start_line"],
+                            end_line=meta["end_line"],
+                            language=meta["language"],
+                            metadata=meta
+                        ))
+                
+                # If no vector search results, fallback to first few chunks
+                if not relevant_chunks:
+                    relevant_chunks = chunks[:settings.MAX_CHUNKS_PER_REVIEW]
                 
                 findings = await agent.analyze(relevant_chunks)
                 all_findings.extend(findings)
@@ -108,12 +169,14 @@ class ReviewManager:
             )
             
             session.status = "completed"
+            self._save_to_disk()
             if progress_callback:
                 progress_callback(100)
                 
         except Exception as e:
             session.status = "failed"
             logger.error(f"Review failed: {e}")
+            self._save_to_disk()
             raise
     
     async def _load_and_chunk(self, request: ReviewRequest) -> List[CodeChunk]:
@@ -169,6 +232,7 @@ class ReviewManager:
             
             review_findings.append(ReviewFinding(
                 id=str(uuid.uuid4())[:8],
+                agent_name=finding.agent_name,
                 severity=finding.severity,
                 category=finding.category,
                 title=finding.title,
@@ -204,3 +268,7 @@ class ReviewManager:
         if review_id not in self._results:
             raise ValueError(f"Results for review {review_id} not found")
         return self._results[review_id]
+
+
+# Singleton instance
+review_manager = ReviewManager()
