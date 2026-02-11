@@ -12,22 +12,27 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     
     # Ollama / LLM
-    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
     LLM_MODEL: str = "llama3"
     EMBEDDING_MODEL: str = "nomic-embed-text"
+    LLM_CONTEXT_WINDOW: int = 4096
+    LLM_TEMPERATURE: float = 0.2
     
-    # ChromaDB
-    CHROMA_HOST: str = "localhost"
-    CHROMA_PORT: int = 8001
-    CHROMA_PERSIST_DIRECTORY: str = "./chroma_db"
-    CHROMA_COLLECTION: str = "code_reviews"
+    # Storage
+    DATA_DIR: str = "../data"
+    CHROMA_PERSIST_DIRECTORY: str = "../data/chroma_db"
+    CLONE_DIR: str = "../data/repos"
+    STATUS_FILE: str = "../data/status.json"
+    RESULTS_FILE: str = "../data/results.json"
+    REVIEWS_FILE: str = "../data/reviews.json"
     
     # GitHub
     GITHUB_TOKEN: str = ""
-    CLONE_DIR: str = "/tmp/repos"
     
     # Agent Settings
     MAX_CHUNKS_PER_REVIEW: int = 50
+    MAX_CHUNKS_TOTAL: int = 100
+    MAX_FILES_PER_REVIEW: int = 30
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
 

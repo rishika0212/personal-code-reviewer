@@ -44,7 +44,9 @@ class GitHubLoader:
                 # Insert token for private repos
                 url = url.replace("https://", f"https://{settings.GITHUB_TOKEN}@")
             
-            repo = Repo.clone_from(url, target_dir, depth=1)
+            # Use asyncio.to_thread to avoid blocking the event loop with synchronous git clone
+            import asyncio
+            repo = await asyncio.to_thread(Repo.clone_from, url, target_dir, depth=1)
             
             # Get file list
             files = self._get_code_files(target_dir)

@@ -2,6 +2,7 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from config import settings
+from utils.logger import logger
 
 
 @dataclass
@@ -28,27 +29,51 @@ class CodeChunker:
     
     def chunk_file(self, content: str, file_path: str) -> List[CodeChunk]:
         """Chunk a file into smaller pieces"""
+        logger.debug(f"Starting chunking for: {file_path}")
+        if not content or len(content.strip()) < 50:
+            logger.debug(f"Skipping tiny file: {file_path}")
+            return []
+            
+        logger.debug(f"File length: {len(content)} chars")
         language = self._detect_language(file_path)
-        lines = content.split("\n")
+        
+        # FIX 3: Dumb character-based chunking (temporary for stability)
         chunks = []
+        max_chars = 1500
+        overlap = 200
         
-        # Try semantic chunking first (by functions/classes)
-        semantic_chunks = self._semantic_chunk(content, language)
+        start = 0
+        chunk_index = 0
         
-        if semantic_chunks:
-            for i, (start, end, chunk_content) in enumerate(semantic_chunks):
-                chunks.append(CodeChunk(
-                    content=chunk_content,
-                    file_path=file_path,
-                    start_line=start,
-                    end_line=end,
-                    language=language,
-                    metadata={"chunk_index": i, "chunk_type": "semantic"}
-                ))
-        else:
-            # Fall back to line-based chunking
-            chunks = self._line_chunk(lines, file_path, language)
+        while start < len(content):
+            end = min(start + max_chars, len(content))
+            chunk_content = content[start:end]
+            
+            # Simple line estimation
+            start_line = content.count("\n", 0, start) + 1
+            end_line = start_line + chunk_content.count("\n")
+            
+            chunks.append(CodeChunk(
+                content=chunk_content,
+                file_path=file_path,
+                start_line=start_line,
+                end_line=end_line,
+                language=language,
+                metadata={"chunk_index": chunk_index, "chunk_type": "dumb_char"}
+            ))
+            
+            if end == len(content):
+                break
+                
+            start = end - overlap
+            chunk_index += 1
+            
+            # Safety break
+            if chunk_index > 100:
+                logger.warning(f"Too many chunks for {file_path}, stopping.")
+                break
         
+        logger.debug(f"Finished chunking {file_path}: {len(chunks)} chunks")
         return chunks
     
     def _semantic_chunk(self, content: str, language: str) -> List[tuple]:

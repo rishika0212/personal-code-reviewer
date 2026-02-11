@@ -13,7 +13,7 @@ services:
       - CHROMA_PORT=8000
     volumes:
       - ./backend/app:/app
-      - chroma_data:/chroma_data
+      - ./backend/data:/data
     depends_on:
       - chromadb
       - ollama
@@ -44,5 +44,4 @@ services:
       - ollama_data:/root/.ollama
 
 volumes:
-  chroma_data:
   ollama_data:

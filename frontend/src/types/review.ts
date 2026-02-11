@@ -31,6 +31,7 @@ export interface ReviewStatus {
   review_id: string
   status: 'pending' | 'processing' | 'completed' | 'failed'
   progress: number
+  message?: string
   error?: string
 }
 

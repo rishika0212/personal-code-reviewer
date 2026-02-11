@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 
 from services.llm_service import LLMService
@@ -45,16 +45,46 @@ class BaseAgent(ABC):
         """Return a default prompt if file not found"""
         pass
     
-    async def analyze(self, chunks: List[CodeChunk]) -> List[AgentFinding]:
-        """Analyze code chunks and return findings"""
+    async def analyze(
+        self, 
+        chunks: List[CodeChunk], 
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> List[AgentFinding]:
+        """Analyze code chunks and return findings concurrently"""
+        import asyncio
         findings = []
         
-        for chunk in chunks:
-            try:
-                chunk_findings = await self._analyze_chunk(chunk)
-                findings.extend(chunk_findings)
-            except Exception as e:
-                logger.error(f"Error analyzing chunk: {e}")
+        if not chunks:
+            return []
+
+        # Limit concurrency to 1 to avoid overloading the laptop's CPU/GPU
+        semaphore = asyncio.Semaphore(1)
+        total_chunks = len(chunks)
+        completed_chunks = 0
+
+        async def _analyze_with_semaphore(chunk):
+            nonlocal completed_chunks
+            async with semaphore:
+                try:
+                    result = await self._analyze_chunk(chunk)
+                    completed_chunks += 1
+                    if progress_callback:
+                        # Call with sub-progress (0.0 to 1.0)
+                        progress_callback(completed_chunks / total_chunks)
+                    return result
+                except Exception:
+                    logger.exception(f"Error analyzing chunk {chunk.file_path}:{chunk.start_line}")
+                    completed_chunks += 1
+                    if progress_callback:
+                        progress_callback(completed_chunks / total_chunks)
+                    return []
+
+        # Run all chunks concurrently with limited concurrency
+        tasks = [_analyze_with_semaphore(chunk) for chunk in chunks]
+        results = await asyncio.gather(*tasks)
+        
+        for chunk_findings in results:
+            findings.extend(chunk_findings)
         
         return findings
     

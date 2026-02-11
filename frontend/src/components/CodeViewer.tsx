@@ -61,38 +61,71 @@ export default function CodeViewer({
   return (
     <div className="rounded-xl overflow-hidden border border-white/5 bg-[#1e1e1e] shadow-2xl font-mono text-[13px]">
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <tbody>
-            {lines.map((line, idx) => {
+        <SyntaxHighlighter
+          language={getLanguage(language)}
+          style={oneDark}
+          showLineNumbers={true}
+          wrapLines={true}
+          customStyle={{
+            margin: 0,
+            padding: '1rem 0',
+            background: 'transparent',
+          }}
+          lineNumberStyle={{
+            minWidth: '3.5rem',
+            paddingRight: '1.5rem',
+            textAlign: 'right',
+            color: '#4b5563',
+            userSelect: 'none',
+            borderRight: '1px solid rgba(255,255,255,0.05)',
+            marginRight: '1rem',
+          }}
+          renderer={({ rows, stylesheet, useInlineStyles }) => {
+            return rows.map((row, idx) => {
               const lineNumber = idx + 1
               const lineFindings = findingsByLine.get(lineNumber)
               const isHighlighted = highlightLines.includes(lineNumber)
               
+              const rowNode = (
+                <div 
+                  key={`line-${idx}`}
+                  style={{ 
+                    ...row.properties.style,
+                    backgroundColor: isHighlighted ? 'rgba(255,255,255,0.05)' : 'transparent',
+                    display: 'flex',
+                  }}
+                >
+                  <span style={{ 
+                    minWidth: '3.5rem', 
+                    paddingRight: '1.5rem', 
+                    textAlign: 'right', 
+                    color: '#4b5563', 
+                    borderRight: '1px solid rgba(255,255,255,0.05)',
+                    marginRight: '1rem',
+                    flexShrink: 0
+                  }}>
+                    {lineNumber}
+                  </span>
+                  <span style={{ flexGrow: 1 }}>
+                    {row.children.map((token, key) => (
+                      <span key={key} style={token.properties?.style}>
+                        {token.children?.[0]?.value || ''}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              )
+
+              if (!lineFindings) return rowNode
+
               return (
-                <React.Fragment key={idx}>
-                  <tr className={isHighlighted ? 'bg-white/5' : ''}>
-                    <td className="w-12 px-4 py-0.5 text-right text-gray-600 select-none border-r border-white/5 bg-[#1e1e1e]">
-                      {lineNumber}
-                    </td>
-                    <td className="px-4 py-0.5 whitespace-pre">
-                      <SyntaxHighlighter
-                        language={getLanguage(language)}
-                        style={oneDark}
-                        customStyle={{
-                          margin: 0,
-                          padding: 0,
-                          background: 'transparent',
-                        }}
-                      >
-                        {line || ' '}
-                      </SyntaxHighlighter>
-                    </td>
-                  </tr>
-                  {lineFindings && lineFindings.map(finding => (
-                    <tr key={finding.id} className="bg-[#1e1e1e]">
-                      <td className="border-r border-white/5 bg-[#1e1e1e]"></td>
-                      <td className="px-4 py-3">
-                        <div className={`rounded-lg border p-4 my-2 max-w-3xl ${getAgentBg(finding.agent_name)} shadow-lg animate-in slide-in-from-left-2 duration-300`}>
+                <React.Fragment key={`group-${idx}`}>
+                  {rowNode}
+                  {lineFindings.map(finding => (
+                    <div key={finding.id} className="flex bg-[#1e1e1e]">
+                      <div className="min-width-[3.5rem] w-[3.5rem] border-r border-white/5 mr-[1rem] flex-shrink-0"></div>
+                      <div className="px-4 py-3 flex-grow">
+                        <div className={`rounded-lg border p-4 my-2 max-w-3xl ${getAgentBg(finding.agent_name)} shadow-lg`}>
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                               {getAgentIcon(finding.agent_name)}
@@ -113,14 +146,16 @@ export default function CodeViewer({
                             </div>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   ))}
                 </React.Fragment>
               )
-            })}
-          </tbody>
-        </table>
+            })
+          }}
+        >
+          {code}
+        </SyntaxHighlighter>
       </div>
     </div>
   )

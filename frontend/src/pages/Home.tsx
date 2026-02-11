@@ -35,10 +35,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[600px] bg-[radial-gradient(circle_at_center,rgba(40,40,55,0.03)_0,transparent_70%)] pointer-events-none"></div>
-      <div className="absolute top-[-10%] right-[-5%] w-[40%] h-[40%] bg-accent/5 blur-[120px] rounded-full pointer-events-none animate-float"></div>
-      <div className="absolute bottom-[10%] left-[-5%] w-[30%] h-[30%] bg-accent/3 blur-[100px] rounded-full pointer-events-none animate-float" style={{ animationDelay: '-4s' }}></div>
+      {/* Decorative background elements - Removed blurs for performance */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[600px] bg-accent/[0.02] pointer-events-none"></div>
+      <div className="absolute top-[-10%] right-[-5%] w-[40%] h-[40%] bg-accent/5 rounded-full pointer-events-none"></div>
+      <div className="absolute bottom-[10%] left-[-5%] w-[30%] h-[30%] bg-accent/3 rounded-full pointer-events-none"></div>
       
       <main className="flex-grow flex items-center justify-center relative z-10">
         <div className="container mx-auto px-6">
@@ -59,7 +59,7 @@ export default function Home() {
           {/* Upload Section */}
           <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-500">
             <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-accent/5 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+              <div className="absolute -inset-1 bg-accent/5 rounded-lg opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
               <div className="relative">
                 <RepoUploader onRepoUploaded={handleRepoUploaded} />
               </div>

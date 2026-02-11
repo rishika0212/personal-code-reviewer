@@ -4,6 +4,7 @@ import { getReviewStatus } from '@/api/reviewApi'
 interface UseReviewStatusResult {
   status: string
   progress: number
+  message: string | null
   error: string | null
   refetch: () => void
 }
@@ -11,6 +12,7 @@ interface UseReviewStatusResult {
 export function useReviewStatus(reviewId: string): UseReviewStatusResult {
   const [status, setStatus] = useState<string>('pending')
   const [progress, setProgress] = useState<number>(0)
+  const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
@@ -20,6 +22,7 @@ export function useReviewStatus(reviewId: string): UseReviewStatusResult {
       const data = await getReviewStatus(reviewId)
       setStatus(data.status)
       setProgress(data.progress)
+      setMessage(data.message || null)
       setError(data.error || null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch status')
@@ -42,12 +45,19 @@ export function useReviewStatus(reviewId: string): UseReviewStatusResult {
     // Poll for status updates while processing
     if (status !== 'pending' && status !== 'processing') return
 
-    const interval = setInterval(() => {
-      fetchStatus()
-    }, 2000)
+    let timer: NodeJS.Timeout
+    
+    const poll = async () => {
+      await fetchStatus()
+      if (status === 'pending' || status === 'processing') {
+        timer = setTimeout(poll, 5000) // FIX 5: Reduce polling to 5 seconds
+      }
+    }
 
-    return () => clearInterval(interval)
+    timer = setTimeout(poll, 5000)
+
+    return () => clearTimeout(timer)
   }, [fetchStatus, status])
 
-  return { status, progress, error, refetch: fetchStatus }
+  return { status, progress, message, error, refetch: fetchStatus }
 }

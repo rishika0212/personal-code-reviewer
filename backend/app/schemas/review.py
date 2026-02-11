@@ -39,4 +39,5 @@ class ReviewStatus(BaseModel):
     review_id: str
     status: str  # pending, processing, completed, failed
     progress: int  # 0-100
+    message: Optional[str] = None
     error: Optional[str] = None

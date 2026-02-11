@@ -16,10 +16,13 @@ class LLMService:
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.1,
+        temperature: Optional[float] = None,
         max_tokens: int = 2048
     ) -> str:
         """Generate a response from the LLM"""
+        if temperature is None:
+            temperature = settings.LLM_TEMPERATURE
+            
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -31,27 +34,31 @@ class LLMService:
                         "stream": False,
                         "options": {
                             "temperature": temperature,
-                            "num_predict": max_tokens
+                            "num_predict": max_tokens,
+                            "num_ctx": settings.LLM_CONTEXT_WINDOW
                         }
                     },
-                    timeout=120.0
+                    timeout=60.0
                 )
                 response.raise_for_status()
                 return response.json()["response"]
         except httpx.TimeoutException:
             logger.error("LLM request timed out")
             raise
-        except Exception as e:
-            logger.error(f"LLM request failed: {e}")
+        except Exception:
+            logger.exception("LLM request failed")
             raise
     
     async def chat(
         self,
         messages: list,
-        temperature: float = 0.1,
+        temperature: Optional[float] = None,
         max_tokens: int = 2048
     ) -> str:
         """Chat completion with message history"""
+        if temperature is None:
+            temperature = settings.LLM_TEMPERATURE
+            
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -62,24 +69,28 @@ class LLMService:
                         "stream": False,
                         "options": {
                             "temperature": temperature,
-                            "num_predict": max_tokens
+                            "num_predict": max_tokens,
+                            "num_ctx": settings.LLM_CONTEXT_WINDOW
                         }
                     },
-                    timeout=120.0
+                    timeout=60.0
                 )
                 response.raise_for_status()
                 return response.json()["message"]["content"]
-        except Exception as e:
-            logger.error(f"Chat request failed: {e}")
+        except Exception:
+            logger.exception("Chat request failed")
             raise
     
     def generate_sync(
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.1
+        temperature: Optional[float] = None
     ) -> str:
         """Synchronous version of generate"""
+        if temperature is None:
+            temperature = settings.LLM_TEMPERATURE
+            
         try:
             with httpx.Client() as client:
                 response = client.post(
@@ -90,25 +101,36 @@ class LLMService:
                         "system": system_prompt,
                         "stream": False,
                         "options": {
-                            "temperature": temperature
+                            "temperature": temperature,
+                            "num_ctx": settings.LLM_CONTEXT_WINDOW
                         }
                     },
-                    timeout=120.0
+                    timeout=60.0
                 )
                 response.raise_for_status()
                 return response.json()["response"]
-        except Exception as e:
-            logger.error(f"LLM request failed: {e}")
+        except Exception:
+            logger.exception("LLM request failed")
             raise
     
     async def is_available(self) -> bool:
-        """Check if the LLM service is available"""
+        """Check if the LLM service is available and model is pulled"""
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.host}/api/tags",
-                    timeout=5.0
+                    timeout=10.0
                 )
-                return response.status_code == 200
-        except Exception:
+                if response.status_code != 200:
+                    return False
+                
+                # Check if model exists
+                models = [m["name"] for m in response.json().get("models", [])]
+                # Some versions of ollama return "model:latest", others just "model"
+                has_model = any(self.model in m for m in models)
+                if not has_model:
+                    logger.warning(f"Model {self.model} not found in Ollama. Pull it with: ollama pull {self.model}")
+                return has_model
+        except Exception as e:
+            logger.warning(f"Ollama connection check failed: {e}")
             return False

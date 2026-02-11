@@ -40,7 +40,8 @@ async def upload_files(files: list[UploadFile] = File(...)):
 async def get_repo_files(repo_id: str):
     """Get list of files in a repository"""
     try:
-        files = github_loader.get_file_tree(repo_id)
+        import asyncio
+        files = await asyncio.to_thread(github_loader.get_file_tree, repo_id)
         return {"repo_id": repo_id, "files": files}
     except Exception as e:
         logger.error(f"Failed to get files: {e}")
@@ -51,7 +52,8 @@ async def get_repo_files(repo_id: str):
 async def get_file_content(repo_id: str, path: str):
     """Get content of a file in a repository"""
     try:
-        content = github_loader.get_file_content(repo_id, path)
+        import asyncio
+        content = await asyncio.to_thread(github_loader.get_file_content, repo_id, path)
         return {"repo_id": repo_id, "path": path, "content": content}
     except Exception as e:
         logger.error(f"Failed to get file content: {e}")

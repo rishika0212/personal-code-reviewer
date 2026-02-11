@@ -14,7 +14,7 @@ import type { ReviewResponse, ReviewFinding, FileNode } from '@/types/review'
 
 export default function Review() {
   const { reviewId } = useParams<{ reviewId: string }>()
-  const { status, progress, error: statusError } = useReviewStatus(reviewId!)
+  const { status, progress, message, error: statusError } = useReviewStatus(reviewId!)
   const [results, setResults] = useState<ReviewResponse | null>(null)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>('')
@@ -75,7 +75,7 @@ export default function Review() {
         <div className="max-w-md w-full text-center space-y-8 animate-in fade-in duration-1000">
           <div className="flex justify-center">
             <div className="relative">
-              <div className="absolute inset-0 rounded-full bg-accent/20 animate-ping duration-[2000ms]"></div>
+              <div className="absolute inset-0 rounded-full bg-accent/10"></div>
               <div className="relative bg-card p-6 rounded-full shadow-xl border border-border">
                 <Loader2 className="h-12 w-12 animate-spin text-accent" />
               </div>
@@ -95,7 +95,7 @@ export default function Review() {
               />
             </div>
             <div className="flex justify-between text-xs font-medium tracking-widest uppercase text-muted-foreground">
-              <span>Analysis in progress</span>
+              <span className="truncate max-w-[250px]">{message || "Analysis in progress"}</span>
               <span>{progress}%</span>
             </div>
           </div>
@@ -132,12 +132,12 @@ export default function Review() {
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden">
-      {/* Subtle decorative background */}
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-accent/3 blur-[100px] rounded-full pointer-events-none -mr-48 -mt-48 animate-float"></div>
-      <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-accent/2 blur-[80px] rounded-full pointer-events-none -ml-24 -mb-24 animate-float" style={{ animationDelay: '-3s' }}></div>
+      {/* Subtle decorative background - Removed blurs for performance */}
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-accent/3 rounded-full pointer-events-none -mr-48 -mt-48"></div>
+      <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-accent/2 rounded-full pointer-events-none -ml-24 -mb-24"></div>
       
       {/* Refined Header */}
-      <header className="border-b border-border/60 bg-transparent backdrop-blur-md sticky top-0 z-50 relative">
+      <header className="border-b border-border/60 bg-background/80 sticky top-0 z-50 relative">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link to="/">
@@ -193,7 +193,7 @@ export default function Review() {
           <div className="grid lg:grid-cols-12 gap-8 items-start">
             {/* Sidebar: Navigation & File Tree */}
             <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-24">
-              <Card className="border-none shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">
+              <Card className="border-none shadow-sm overflow-hidden bg-card/80">
                 <CardHeader className="pb-3 border-b border-border/40">
                   <CardTitle className="text-xs uppercase tracking-widest text-muted-foreground">Exploration</CardTitle>
                 </CardHeader>
@@ -213,11 +213,11 @@ export default function Review() {
                 </CardHeader>
                 <CardContent className="space-y-4 pt-2">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-card/50 backdrop-blur-sm rounded-lg border border-accent/10 shadow-sm">
+                    <div className="p-3 bg-card/80 rounded-lg border border-accent/10 shadow-sm">
                       <p className="text-[10px] text-muted-foreground uppercase mb-1">Coverage</p>
                       <p className="text-xl font-serif font-bold">94%</p>
                     </div>
-                    <div className="p-3 bg-card/50 backdrop-blur-sm rounded-lg border border-accent/10 shadow-sm">
+                    <div className="p-3 bg-card/80 rounded-lg border border-accent/10 shadow-sm">
                       <p className="text-[10px] text-muted-foreground uppercase mb-1">Stability</p>
                       <p className="text-xl font-serif font-bold">High</p>
                     </div>
@@ -298,7 +298,7 @@ export default function Review() {
 
                 <TabsContent value="summary" className="mt-0 focus-visible:outline-none">
                   <div className="grid md:grid-cols-2 gap-8">
-                    <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
+                    <Card className="border-none shadow-sm bg-card/80">
                       <CardHeader>
                         <CardTitle className="font-serif">Severity Distribution</CardTitle>
                       </CardHeader>

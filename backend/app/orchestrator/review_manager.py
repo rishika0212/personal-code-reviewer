@@ -1,6 +1,8 @@
 import uuid
 import asyncio
 import json
+import gc
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional
 from dataclasses import dataclass, field
@@ -9,6 +11,7 @@ from agents.code_analyzer import CodeAnalyzerAgent
 from agents.security_agent import SecurityAgent
 from agents.optimization_agent import OptimizationAgent
 from agents.base_agent import AgentFinding
+from services.llm_service import LLMService
 from indexing.chunker import CodeChunker, CodeChunk
 from indexing.embeddings import EmbeddingService
 from vectorstore.chroma_store import chroma_store
@@ -39,36 +42,72 @@ class ReviewManager:
         ]
         self.chunker = CodeChunker()
         self.embeddings = EmbeddingService()
+        self.llm = LLMService()
         self.github_loader = github_loader
         self._sessions: Dict[str, ReviewSession] = {}
         self._results: Dict[str, ReviewResponse] = {}
         self.review_status: Dict[str, ReviewStatus] = {}
-        self.storage_path = Path("reviews.json")
+        self.status_path = Path(settings.STATUS_FILE)
+        self.results_path = Path(settings.RESULTS_FILE)
+        self._lock = asyncio.Lock()  # FIX 7: Backpressure - only one review at a time
+        
+        # Ensure data directory exists
+        self.status_path.parent.mkdir(parents=True, exist_ok=True)
+        
         self._load_from_disk()
     
-    def _save_to_disk(self):
+    def _save_to_disk(self, save_results: bool = True):
         """Save status and results to disk"""
         try:
-            data = {
-                "status": {k: v.model_dump() for k, v in self.review_status.items()},
-                "results": {k: v.model_dump() for k, v in self._results.items()}
-            }
-            self.storage_path.write_text(json.dumps(data), encoding='utf-8')
+            # Save status
+            status_data = {k: v.model_dump() for k, v in self.review_status.items()}
+            self.status_path.write_text(json.dumps(status_data), encoding='utf-8')
+            
+            # Save results if requested
+            if save_results:
+                self._ensure_results_loaded()
+                results_data = {k: v.model_dump() for k, v in self._results.items()}
+                self.results_path.write_text(json.dumps(results_data), encoding='utf-8')
         except Exception as e:
             logger.error(f"Failed to save to disk: {e}")
 
     def _load_from_disk(self):
-        """Load status and results from disk"""
-        if not self.storage_path.exists():
-            return
+        """Load status from disk (results loaded lazily)"""
         try:
-            data = json.loads(self.storage_path.read_text(encoding='utf-8'))
-            self.review_status = {k: ReviewStatus(**v) for k, v in data.get("status", {}).items()}
-            self._results = {k: ReviewResponse(**v) for k, v in data.get("results", {}).items()}
+            if self.status_path.exists():
+                content = self.status_path.read_text(encoding='utf-8')
+                if content.strip():
+                    status_data = json.loads(content)
+                    self.review_status = {k: ReviewStatus(**v) for k, v in status_data.items()}
+                    
+                    # Reset any "processing" or "pending" statuses to "failed" on startup
+                    # since their background tasks are no longer running
+                    for status in self.review_status.values():
+                        if status.status in ("processing", "pending"):
+                            status.status = "failed"
+                            status.error = "Review interrupted by server restart"
+                            status.message = "Failed (Interrupted)"
+                    self._save_to_disk(save_results=False)
+            
             logger.info(f"Loaded {len(self.review_status)} reviews from disk")
         except Exception as e:
             logger.error(f"Failed to load from disk: {e}")
     
+    def _ensure_results_loaded(self):
+        """Lazily load results from disk"""
+        if self._results:
+            return
+            
+        try:
+            if self.results_path.exists():
+                results_text = self.results_path.read_text(encoding='utf-8')
+                if results_text:
+                    results_data = json.loads(results_text)
+                    self._results = {k: ReviewResponse(**v) for k, v in results_data.items()}
+                    logger.info(f"Loaded {len(self._results)} review results from disk")
+        except Exception as e:
+            logger.error(f"Failed to load results from disk: {e}")
+
     def create_review(self, request: ReviewRequest) -> str:
         """Create a new review session"""
         review_id = str(uuid.uuid4())[:8]
@@ -91,130 +130,250 @@ class ReviewManager:
         self,
         review_id: str,
         request: ReviewRequest,
-        progress_callback: Optional[Callable[[int], None]] = None
+        progress_callback: Optional[Callable[[int, Optional[str]], None]] = None
     ):
         """Run the complete review process"""
-        session = self._sessions.get(review_id)
-        if not session:
-            raise ValueError(f"Review session {review_id} not found")
+        # FIX 7: Backpressure - Wait for previous review to finish
+        if self._lock.locked():
+            logger.info(f"[{time.strftime('%H:%M:%S')}] Review {review_id} queued, waiting for previous review...")
+            if progress_callback:
+                progress_callback(0, "Waiting for previous review to finish...")
         
-        try:
-            session.status = "processing"
+        async with self._lock:
+            logger.info(f"[{time.strftime('%H:%M:%S')}] STARTING review {review_id}")
+            session = self._sessions.get(review_id)
+            if not session:
+                raise ValueError(f"Review session {review_id} not found")
             
-            # Step 1: Load and chunk code (20%)
-            if progress_callback:
-                progress_callback(10)
-            
-            chunks = await self._load_and_chunk(request)
-            session.chunks = chunks
-            
-            if progress_callback:
-                progress_callback(20)
-            
-            # Step 2: Index in vector store (30%)
-            await self._index_chunks(review_id, chunks)
-            
-            if progress_callback:
-                progress_callback(30)
-            
-            # Step 3: Run agents (30-90%)
-            all_findings = []
-            agent_progress = 30
-            progress_per_agent = 60 // len(self.agents)
-            
-            for agent in self.agents:
-                logger.info(f"Running agent: {agent.name}")
+            try:
+                session.status = "processing"
                 
-                # Get relevant chunks for this agent using vector search
-                query_text = agent._get_default_prompt()
-                query_embedding = await self.embeddings.embed_text(query_text)
+                # Initial progress update (5%)
+                if progress_callback:
+                    progress_callback(5, "Initializing analysis...")
                 
-                collection_name = f"review_{review_id}"
-                results = chroma_store.query(
-                    collection_name=collection_name,
-                    query_embedding=query_embedding,
-                    n_results=settings.MAX_CHUNKS_PER_REVIEW
+                # Check if LLM is available
+                llm_available = await self.llm.is_available()
+                embed_available = await self.embeddings.is_available()
+                
+                if not llm_available or not embed_available:
+                    missing = []
+                    if not llm_available: missing.append(f"LLM model ({settings.LLM_MODEL})")
+                    if not embed_available: missing.append(f"Embedding model ({settings.EMBEDDING_MODEL})")
+                    
+                    error_msg = f"Ollama service unavailable or missing models: {', '.join(missing)}. " \
+                               f"Ensure Ollama is running at {settings.OLLAMA_HOST} and models are pulled."
+                    
+                    logger.error(error_msg)
+                    if progress_callback:
+                        progress_callback(5, "Error: Ollama or models unavailable")
+                    
+                    # Update status to failed
+                    self.review_status[review_id].status = "failed"
+                    self.review_status[review_id].error = error_msg
+                    self._save_to_disk()
+                    raise RuntimeError(error_msg)
+                
+                # Step 1: Load and chunk code (25%)
+                logger.info(f"[{time.strftime('%H:%M:%S')}] Step 1: Loading and chunking code for review {review_id}")
+                if progress_callback:
+                    progress_callback(10, "Extracting code segments...")
+                
+                chunks = await self._load_and_chunk(review_id, request, progress_callback)
+                session.chunks = chunks
+                logger.info(f"[{time.strftime('%H:%M:%S')}] Successfully created {len(chunks)} chunks from repository")
+                
+                if progress_callback:
+                    progress_callback(25, "Preparing vector index...")
+                
+                # Step 2: Index in vector store (40%)
+                logger.info(f"[{time.strftime('%H:%M:%S')}] Step 2: Indexing {len(chunks)} chunks for review {review_id}")
+                await self._index_chunks(review_id, chunks, progress_callback)
+                
+                if progress_callback:
+                    progress_callback(40, "Ready for agent review")
+                
+                # Step 3: Run agents (40-95%)
+                all_findings = []
+                agent_progress_start = 40
+                total_agent_contribution = 55
+                progress_per_agent = total_agent_contribution // len(self.agents)
+                
+                # FIX 1: Run agents SEQUENTIALLY (already loop, but adding logs)
+                for i, agent in enumerate(self.agents):
+                    logger.info(f"[{time.strftime('%H:%M:%S')}] [START] agent {agent.name}")
+                    if progress_callback:
+                        progress_callback(agent_progress_start + (i * progress_per_agent), f"Running {agent.name}...")
+                    
+                    await asyncio.sleep(0.1)  # Yield to event loop to keep system responsive
+                    
+                    # Get relevant chunks for this agent using vector search
+                    query_text = agent._get_default_prompt()
+                    try:
+                        query_embedding = await self.embeddings.embed_text(query_text)
+                        
+                        collection_name = f"review_{review_id}"
+                        results = chroma_store.query(
+                            collection_name=collection_name,
+                            query_embedding=query_embedding,
+                            n_results=settings.MAX_CHUNKS_PER_REVIEW
+                        )
+                        
+                        # Reconstruct CodeChunks from results
+                        relevant_chunks = []
+                        if results["documents"] and results["documents"][0]:
+                            for j, doc in enumerate(results["documents"][0]):
+                                meta = results["metadatas"][0][j]
+                                relevant_chunks.append(CodeChunk(
+                                    content=doc,
+                                    file_path=meta["file_path"],
+                                    start_line=meta["start_line"],
+                                    end_line=meta["end_line"],
+                                    language=meta["language"],
+                                    metadata=meta
+                                ))
+                    except Exception as e:
+                        logger.error(f"Vector search failed for agent {agent.name}: {e}")
+                        relevant_chunks = []
+                    
+                    # If no vector search results, fallback to first few chunks
+                    if not relevant_chunks:
+                        relevant_chunks = chunks[:settings.MAX_CHUNKS_PER_REVIEW]
+                    
+                    # Create a sub-progress callback for the agent
+                    def make_agent_cb(agent_idx, agent_name):
+                        def cb(sub_p):
+                            if progress_callback:
+                                p = agent_progress_start + (agent_idx * progress_per_agent) + int(sub_p * progress_per_agent)
+                                progress_callback(min(p, 95), f"Analyzing with {agent_name}...")
+                        return cb
+
+                    findings = await agent.analyze(relevant_chunks, progress_callback=make_agent_cb(i, agent.name))
+                    all_findings.extend(findings)
+                    
+                    # FIX 4: STREAM RESULTS - Store partial findings
+                    session.findings = all_findings
+                    self._results[review_id] = self._compile_results(review_id, request, all_findings)
+                    self._save_to_disk()
+                    
+                    logger.info(f"[{time.strftime('%H:%M:%S')}] [END] agent {agent.name} ({len(findings)} findings)")
+                    
+                    # Update progress to the end of this agent's block
+                    if progress_callback:
+                        progress_callback(min(agent_progress_start + (i + 1) * progress_per_agent, 95), f"Finished {agent.name}")
+                    
+                    # FIX 8: MEMORY CLEANUP after each agent
+                    del findings
+                    gc.collect()
+                
+                # Step 4: Compile results (100%)
+                if progress_callback:
+                    progress_callback(98, "Compiling final report...")
+                    
+                self._results[review_id] = self._compile_results(
+                    review_id, request, all_findings
                 )
                 
-                # Reconstruct CodeChunks from results
-                relevant_chunks = []
-                if results["documents"]:
-                    for i, doc in enumerate(results["documents"][0]):
-                        meta = results["metadatas"][0][i]
-                        relevant_chunks.append(CodeChunk(
-                            content=doc,
-                            file_path=meta["file_path"],
-                            start_line=meta["start_line"],
-                            end_line=meta["end_line"],
-                            language=meta["language"],
-                            metadata=meta
-                        ))
-                
-                # If no vector search results, fallback to first few chunks
-                if not relevant_chunks:
-                    relevant_chunks = chunks[:settings.MAX_CHUNKS_PER_REVIEW]
-                
-                findings = await agent.analyze(relevant_chunks)
-                all_findings.extend(findings)
-                
-                agent_progress += progress_per_agent
+                session.status = "completed"
+                self._save_to_disk()
+                logger.info(f"[{time.strftime('%H:%M:%S')}] COMPLETED review {review_id}")
                 if progress_callback:
-                    progress_callback(agent_progress)
-            
-            session.findings = all_findings
-            
-            # Step 4: Compile results (100%)
-            self._results[review_id] = self._compile_results(
-                review_id, request, all_findings
-            )
-            
-            session.status = "completed"
-            self._save_to_disk()
-            if progress_callback:
-                progress_callback(100)
-                
-        except Exception as e:
-            session.status = "failed"
-            logger.error(f"Review failed: {e}")
-            self._save_to_disk()
-            raise
+                    progress_callback(100)
+                    
+            except Exception as e:
+                session.status = "failed"
+                logger.error(f"[{time.strftime('%H:%M:%S')}] Review FAILED: {e}")
+                self._save_to_disk()
+                raise
     
-    async def _load_and_chunk(self, request: ReviewRequest) -> List[CodeChunk]:
+    async def _load_and_chunk(
+        self, 
+        review_id: str,
+        request: ReviewRequest,
+        progress_callback: Optional[Callable[[int, Optional[str]], None]] = None
+    ) -> List[CodeChunk]:
         """Load code files and chunk them"""
         chunks = []
         
         # Get files from the repository
-        file_tree = self.github_loader.get_file_tree(request.repo_id)
+        try:
+            file_tree = self.github_loader.get_file_tree(request.repo_id)
+        except Exception as e:
+            logger.error(f"Failed to get file tree: {e}")
+            return []
         
-        for file_info in self._flatten_file_tree(file_tree):
+        all_files = self._flatten_file_tree(file_tree)
+        
+        # FIX 2: CAP CODE CHUNKS - Limit files and total chunks
+        if len(all_files) > settings.MAX_FILES_PER_REVIEW:
+            logger.warning(f"[{review_id}] Repository has {len(all_files)} files. Capping at {settings.MAX_FILES_PER_REVIEW}")
+            all_files = all_files[:settings.MAX_FILES_PER_REVIEW]
+            
+        total_files = len(all_files)
+        
+        for i, file_info in enumerate(all_files):
+            # FIX 2: CAP CODE CHUNKS - Hard limit on total chunks
+            if len(chunks) >= settings.MAX_CHUNKS_TOTAL:
+                logger.warning(f"[{review_id}] Reached max total chunks ({settings.MAX_CHUNKS_TOTAL}). Stopping indexing.")
+                break
+
             if file_info["type"] == "file":
                 try:
-                    content = self.github_loader.get_file_content(
-                        request.repo_id,
-                        file_info["path"]
-                    )
-                    file_chunks = self.chunker.chunk_file(
-                        content,
-                        file_info["path"]
-                    )
+                    # FIX 2: Per-file timeout (5 seconds)
+                    async def process_single_file():
+                        content = await asyncio.to_thread(
+                            self.github_loader.get_file_content,
+                            request.repo_id,
+                            file_info["path"]
+                        )
+                        
+                        if not content:
+                            return []
+
+                        return self.chunker.chunk_file(
+                            content,
+                            file_info["path"]
+                        )
+
+                    file_chunks = await asyncio.wait_for(process_single_file(), timeout=5.0)
                     chunks.extend(file_chunks)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout processing {file_info['path']}, skipping.")
                 except Exception as e:
                     logger.warning(f"Failed to load {file_info['path']}: {e}")
         
         return chunks
     
-    async def _index_chunks(self, review_id: str, chunks: List[CodeChunk]):
+    async def _index_chunks(
+        self, 
+        review_id: str, 
+        chunks: List[CodeChunk],
+        progress_callback: Optional[Callable[[int, Optional[str]], None]] = None
+    ):
         """Index chunks in vector store"""
         if not chunks:
             return
         
-        # Generate embeddings
+        # Generate embeddings in smaller batches to avoid blocking and show progress
+        batch_size = 5
         texts = [chunk.content for chunk in chunks]
-        embeddings = await self.embeddings.embed_batch(texts)
+        all_embeddings = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            batch_embeddings = await self.embeddings.embed_batch(batch)
+            all_embeddings.extend(batch_embeddings)
+            
+            if progress_callback:
+                # Use 25-40% range for indexing
+                p = 25 + int((min(i + batch_size, len(texts)) / len(texts)) * 15)
+                progress_callback(p, f"Generating embeddings ({min(i + batch_size, len(texts))}/{len(texts)})...")
+            
+            await asyncio.sleep(0.1)
         
         # Store in ChromaDB
         collection_name = f"review_{review_id}"
-        chroma_store.add_chunks(collection_name, chunks, embeddings)
+        chroma_store.add_chunks(collection_name, chunks, all_embeddings)
     
     def _compile_results(
         self,
@@ -265,6 +424,7 @@ class ReviewManager:
     
     def get_review_results(self, review_id: str) -> ReviewResponse:
         """Get the results of a completed review"""
+        self._ensure_results_loaded()
         if review_id not in self._results:
             raise ValueError(f"Results for review {review_id} not found")
         return self._results[review_id]

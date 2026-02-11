@@ -62,32 +62,12 @@
   body {
     @apply text-foreground font-sans antialiased;
     background-color: hsl(var(--background));
-    background-image: 
-      radial-gradient(at 0% 0%, hsla(270, 70%, 94%, 1) 0, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(210, 70%, 92%, 1) 0, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(10, 60%, 92%, 1) 0, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(150, 50%, 92%, 1) 0, transparent 50%);
-    background-attachment: fixed;
   }
 
   .dark body {
     background-color: hsl(var(--background));
-    background-image: 
-      radial-gradient(at 0% 0%, hsla(260, 40%, 15%, 1) 0, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(220, 40%, 12%, 1) 0, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(280, 30%, 12%, 1) 0, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(240, 30%, 10%, 1) 0, transparent 50%);
   }
   
-  @keyframes float {
-    0% { transform: translate(0, 0); }
-    50% { transform: translate(10px, 15px); }
-    100% { transform: translate(0, 0); }
-  }
-
-  .animate-float {
-    animation: float 8s ease-in-out infinite;
-  }
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif;
   }
