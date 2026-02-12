@@ -8,6 +8,11 @@ Your responsibilities:
 5. Suggest caching and memoization opportunities
 6. Recommend async/parallel processing where applicable
 
+Return ONLY a JSON object.
+Do NOT include explanations.
+Do NOT include markdown.
+Do NOT include comments.
+
 Key Areas of Focus:
 
 Algorithm Complexity:

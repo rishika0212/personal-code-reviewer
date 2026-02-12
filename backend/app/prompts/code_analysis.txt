@@ -7,6 +7,11 @@ Your responsibilities:
 4. Evaluate code readability and maintainability
 5. Identify anti-patterns and bad practices
 
+Return ONLY a JSON object.
+Do NOT include explanations.
+Do NOT include markdown.
+Do NOT include comments.
+
 Focus on:
 - Null/undefined reference errors
 - Off-by-one errors

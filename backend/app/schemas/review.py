@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import List, Dict, Optional
 
 
@@ -19,9 +19,19 @@ class ReviewFinding(BaseModel):
     description: str
     file_path: str
     start_line: int
-    end_line: int
+    end_line: Optional[int] = None
     suggestion: str
     code_snippet: str
+
+    @property
+    def line(self) -> int:
+        return self.start_line
+
+    @model_validator(mode="after")
+    def auto_fill_end_line(self) -> "ReviewFinding":
+        if self.end_line is None:
+            self.end_line = self.line
+        return self
 
 
 class ReviewResponse(BaseModel):

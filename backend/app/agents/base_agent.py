@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 
 from services.llm_service import LLMService
+from services.llm_output_parser import repair_and_parse
 from indexing.chunker import CodeChunk
 from utils.logger import logger
 
@@ -29,6 +30,7 @@ class BaseAgent(ABC):
         self.name = name
         self.prompt_file = prompt_file
         self.llm = LLMService()
+        self.stats = {"parsed": 0, "failed": 0}
         self._load_prompt()
     
     def _load_prompt(self):
@@ -86,6 +88,10 @@ class BaseAgent(ABC):
         for chunk_findings in results:
             findings.extend(chunk_findings)
         
+        logger.info(
+            f"[END] {self.name}: {self.stats['parsed']} parsed, {self.stats['failed']} dropped"
+        )
+        
         return findings
     
     async def _analyze_chunk(self, chunk: CodeChunk) -> List[AgentFinding]:
@@ -97,8 +103,40 @@ class BaseAgent(ABC):
             user_prompt=prompt
         )
         
-        return self._parse_response(response, chunk)
+        parsed_data = await repair_and_parse(response, self.llm)
+        
+        if parsed_data:
+            self.stats["parsed"] += 1
+            return self._process_findings(parsed_data, chunk)
+        else:
+            self.stats["failed"] += 1
+            logger.warning(f"[{self.name}] Failed to parse chunk {chunk.file_path}:{chunk.start_line}")
+            return []
     
+    def _process_findings(
+        self,
+        data: Dict[str, Any],
+        chunk: CodeChunk
+    ) -> List[AgentFinding]:
+        """Convert parsed JSON data into AgentFinding objects"""
+        findings = []
+        
+        for f in data.get("findings", []):
+            findings.append(AgentFinding(
+                agent_name=self.name,
+                severity=f.get("severity", "info"),
+                category=f.get("category", "general"),
+                title=f.get("title", "Untitled"),
+                description=f.get("description", ""),
+                file_path=chunk.file_path,
+                start_line=f.get("start_line", chunk.start_line),
+                end_line=f.get("end_line", chunk.end_line),
+                suggestion=f.get("suggestion", ""),
+                code_snippet=f.get("code_snippet", "")
+            ))
+        
+        return findings
+
     def _build_prompt(self, chunk: CodeChunk) -> str:
         """Build the analysis prompt for a chunk"""
         return f"""
@@ -108,58 +146,26 @@ Analyze the following {chunk.language} code from {chunk.file_path} (lines {chunk
 {chunk.content}
 ```
 
-Provide your analysis in the following JSON format:
+Return ONLY a JSON object.
+Do NOT include explanations.
+Do NOT include markdown.
+Do NOT include comments.
+
+The JSON must strictly follow this schema:
 {{
     "findings": [
         {{
-            "severity": "critical|high|medium|low|info",
-            "category": "category name",
-            "title": "brief title",
-            "description": "detailed description",
+            "severity": "critical" | "high" | "medium" | "low" | "info",
+            "category": string,
+            "title": string,
+            "description": string,
             "start_line": {chunk.start_line},
-            "end_line": line number,
-            "suggestion": "how to fix",
-            "code_snippet": "relevant code"
+            "end_line": number,
+            "suggestion": string,
+            "code_snippet": string
         }}
     ]
 }}
 
 If no issues found, return {{"findings": []}}
 """
-    
-    def _parse_response(
-        self,
-        response: str,
-        chunk: CodeChunk
-    ) -> List[AgentFinding]:
-        """Parse LLM response into findings"""
-        import json
-        
-        try:
-            # Try to extract JSON from response
-            start = response.find("{")
-            end = response.rfind("}") + 1
-            
-            if start >= 0 and end > start:
-                data = json.loads(response[start:end])
-                findings = []
-                
-                for f in data.get("findings", []):
-                    findings.append(AgentFinding(
-                        agent_name=self.name,
-                        severity=f.get("severity", "info"),
-                        category=f.get("category", "general"),
-                        title=f.get("title", "Untitled"),
-                        description=f.get("description", ""),
-                        file_path=chunk.file_path,
-                        start_line=f.get("start_line", chunk.start_line),
-                        end_line=f.get("end_line", chunk.end_line),
-                        suggestion=f.get("suggestion", ""),
-                        code_snippet=f.get("code_snippet", "")
-                    ))
-                
-                return findings
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse response: {e}")
-        
-        return []

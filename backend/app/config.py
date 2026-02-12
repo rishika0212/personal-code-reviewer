@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: str = ""
     
     # Agent Settings
-    MAX_CHUNKS_PER_REVIEW: int = 50
+    MAX_CHUNKS_PER_REVIEW: int = 20
     MAX_CHUNKS_TOTAL: int = 100
     MAX_FILES_PER_REVIEW: int = 30
     CHUNK_SIZE: int = 1000
