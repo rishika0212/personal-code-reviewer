@@ -1,14 +1,14 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
 
-from schemas.review import ReviewRequest, ReviewResponse, ReviewStatus
+from schemas.review import ReviewRequest, ReviewResponse, ReviewStatus, PatchRequest, PatchResponse, ApplyPatchesRequest, PushRequest
 from orchestrator.review_manager import review_manager
 from utils.logger import logger
 
 router = APIRouter()
 
 
-@router.post("/", response_model=Dict[str, str])
+@router.post("/review", response_model=Dict[str, str])
 async def start_review(request: ReviewRequest, background_tasks: BackgroundTasks):
     """Start a new code review"""
     try:
@@ -20,7 +20,7 @@ async def start_review(request: ReviewRequest, background_tasks: BackgroundTasks
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/status/{review_id}", response_model=ReviewStatus)
+@router.get("/review/status/{review_id}", response_model=ReviewStatus)
 async def get_review_status(review_id: str):
     """Get the status of a review"""
     if review_id not in review_manager.review_status:
@@ -28,7 +28,7 @@ async def get_review_status(review_id: str):
     return review_manager.review_status[review_id]
 
 
-@router.get("/{review_id}", response_model=ReviewResponse)
+@router.get("/review/{review_id}", response_model=ReviewResponse)
 async def get_review_results(review_id: str):
     """Get the results of a completed review"""
     if review_id not in review_manager.review_status:
@@ -46,6 +46,55 @@ async def get_review_results(review_id: str):
     except ValueError as e:
         logger.error(f"Inconsistency: Review marked as completed but results missing for {review_id}")
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/review/patch", response_model=PatchResponse)
+async def generate_patch(request: PatchRequest):
+    """Generate a patch for selected findings"""
+    try:
+        patch_data = await review_manager.generate_patch(
+            request.review_id,
+            request.finding_ids
+        )
+        return patch_data
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to generate patch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/review/apply", response_model=Dict[str, bool])
+async def apply_patches(request: ApplyPatchesRequest):
+    """Apply generated patches to the repository"""
+    try:
+        success = await review_manager.apply_patches(
+            request.review_id,
+            request.patches
+        )
+        return {"success": success}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to apply patches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/review/push", response_model=Dict[str, str])
+async def push_to_github(request: PushRequest):
+    """Push changes to GitHub and create PR"""
+    try:
+        pr_url = await review_manager.push_to_github(
+            request.review_id,
+            request.title,
+            request.body
+        )
+        return {"pr_url": pr_url}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to push to GitHub: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def run_review(review_id: str, request: ReviewRequest):

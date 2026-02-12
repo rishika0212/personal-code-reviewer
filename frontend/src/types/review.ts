@@ -49,3 +49,21 @@ export interface FileNode {
   type: 'file' | 'directory'
   children?: FileNode[]
 }
+
+export interface LineDiff {
+  type: 'unchanged' | 'added' | 'removed'
+  content: string
+  line_number: number
+}
+
+export interface FilePatch {
+  original: string
+  modified: string
+  diff: string
+  line_diff: LineDiff[]
+}
+
+export interface PatchResponse {
+  review_id: string
+  patches: Record<string, FilePatch>
+}

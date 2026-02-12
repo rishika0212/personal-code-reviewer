@@ -72,3 +72,11 @@ def list_files_recursive(
             if extensions is None or get_file_extension(filename) in extensions:
                 files.append(os.path.join(root, filename))
     return files
+
+
+def extract_context(file_content: str, line: int, window: int = 10):
+    """Extract a context window around a specific line"""
+    lines = file_content.split("\n")
+    start = max(0, line - window - 1)
+    end = min(len(lines), line + window)
+    return "\n".join(lines[start:end])

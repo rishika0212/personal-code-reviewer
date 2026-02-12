@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 from api.review_routes import router as review_router
 from api.repo_routes import router as repo_router
@@ -19,8 +23,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(review_router, prefix="/api/review", tags=["review"])
-app.include_router(repo_router, prefix="/api/repo", tags=["repo"])
+app.include_router(review_router, prefix="/api", tags=["review"])
+app.include_router(repo_router, prefix="/api", tags=["repo"])
+
+# Debug: Print all registered routes
+print("\n--- Registered Routes ---")
+for route in app.routes:
+    methods = getattr(route, "methods", "GET")
+    print(f"{methods} {route.path}")
+print("GITHUB_TOKEN configured:", bool(os.getenv("GITHUB_TOKEN")))
+print("------------------------\n")
 
 
 @app.get("/health")

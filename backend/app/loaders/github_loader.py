@@ -1,8 +1,10 @@
 import os
 import shutil
 import uuid
+import httpx
+import asyncio
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from git import Repo
 from config import settings
@@ -82,6 +84,99 @@ class GitHubLoader:
         full_path = self._repos[repo_id] / file_path
         return full_path.read_text(encoding='utf-8')
     
+    def apply_patch(self, repo_id: str, file_path: str, content: str):
+        """Apply a patch by overwriting the file content"""
+        if repo_id not in self._repos:
+            raise ValueError(f"Repository {repo_id} not found")
+            
+        full_path = self._repos[repo_id] / file_path
+        if not full_path.exists():
+            raise ValueError(f"File {file_path} not found in repository")
+            
+        full_path.write_text(content, encoding='utf-8')
+        logger.info(f"Applied patch to {file_path} in repo {repo_id}")
+
+    def get_repo_url(self, repo_id: str) -> str:
+        """Get the original URL for a cloned repository"""
+        if repo_id not in self._repos:
+            raise ValueError(f"Repository {repo_id} not found")
+            
+        repo = Repo(self._repos[repo_id])
+        return repo.remotes.origin.url
+
+    async def create_pull_request(
+        self, 
+        repo_id: str, 
+        repo_url: str,
+        title: str,
+        body: str,
+        base_branch: str = "main"
+    ) -> str:
+        """Create a new branch, push changes, and open a PR"""
+        if repo_id not in self._repos:
+            raise ValueError(f"Repository {repo_id} not found")
+            
+        if not settings.GITHUB_TOKEN:
+            raise ValueError("GITHUB_TOKEN is not configured")
+            
+        repo_dir = self._repos[repo_id]
+        repo = Repo(repo_dir)
+        
+        # 1. Create a unique branch name
+        branch_name = f"zencoder-fix-{uuid.uuid4().hex[:6]}"
+        new_branch = repo.create_head(branch_name)
+        new_branch.checkout()
+        
+        # 2. Commit changes
+        repo.git.add(A=True)
+        repo.index.commit(title)
+        
+        # 3. Push to remote
+        # Update remote URL to include token if not already present
+        origin = repo.remote(name='origin')
+        url = repo_url
+        if "https://" in url and settings.GITHUB_TOKEN:
+            url = url.replace("https://", f"https://{settings.GITHUB_TOKEN}@")
+        
+        origin.set_url(url)
+        
+        # Push in thread to avoid blocking
+        await asyncio.to_thread(origin.push, refspec=f"{branch_name}:{branch_name}")
+        
+        # 4. Create PR via GitHub API
+        # Extract owner/repo from URL
+        # e.g., https://github.com/owner/repo.git -> owner/repo
+        parts = repo_url.rstrip("/").replace(".git", "").split("/")
+        if len(parts) < 2:
+            raise ValueError(f"Invalid repository URL: {repo_url}")
+        
+        owner_repo = f"{parts[-2]}/{parts[-1]}"
+        api_url = f"https://api.github.com/repos/{owner_repo}/pulls"
+        
+        headers = {
+            "Authorization": f"token {settings.GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        payload = {
+            "title": title,
+            "body": body,
+            "head": branch_name,
+            "base": base_branch
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(api_url, headers=headers, json=payload)
+            
+            if response.status_code == 201:
+                pr_data = response.json()
+                logger.info(f"PR created successfully: {pr_data['html_url']}")
+                return pr_data['html_url']
+            else:
+                error_detail = response.text
+                logger.error(f"Failed to create PR: {response.status_code} - {error_detail}")
+                raise RuntimeError(f"GitHub API error: {error_detail}")
+
     def _get_code_files(self, directory: Path) -> List[Path]:
         """Get all code files in directory"""
         files = []

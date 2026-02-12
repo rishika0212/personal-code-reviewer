@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, AlertCircle, CheckCircle2, LayoutGrid, FileCode, ScrollText, Shield, Code2, Zap } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, CheckCircle2, LayoutGrid, FileCode, ScrollText, Shield, Code2, Zap, X, Wand2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -9,8 +9,10 @@ import FileTree from '@/components/FileTree'
 import CodeViewer from '@/components/CodeViewer'
 import AgentComments from '@/components/AgentComments'
 import { useReviewStatus } from '@/hooks/useReviewStatus'
-import { getReviewResults, getRepoFiles, getFileContent } from '@/api/reviewApi'
-import type { ReviewResponse, ReviewFinding, FileNode } from '@/types/review'
+import { getReviewResults, getRepoFiles, getFileContent, generatePatch, applyPatches, pushToGitHub } from '@/api/reviewApi'
+import type { ReviewResponse, ReviewFinding, FileNode, PatchResponse } from '@/types/review'
+import DiffViewer from '@/components/DiffViewer'
+import { ExternalLink, Github } from 'lucide-react'
 
 export default function Review() {
   const { reviewId } = useParams<{ reviewId: string }>()
@@ -19,6 +21,13 @@ export default function Review() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>('')
   const [fileTree, setFileTree] = useState<FileNode[]>([])
+  const [selectedFindingIds, setSelectedFindingIds] = useState<string[]>([])
+  const [patchData, setPatchData] = useState<PatchResponse | null>(null)
+  const [isGeneratingPatch, setIsGeneratingPatch] = useState(false)
+  const [isApplying, setIsApplying] = useState(false)
+  const [isPushing, setIsPushing] = useState(false)
+  const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [showDiffModal, setShowDiffModal] = useState(false)
 
   const fetchResults = useCallback(async () => {
     if (!reviewId) return
@@ -61,6 +70,67 @@ export default function Review() {
 
   const handleFindingClick = (finding: ReviewFinding) => {
     setSelectedFile(finding.file_path)
+  }
+
+  const handleToggleFinding = (id: string) => {
+    setSelectedFindingIds(prev => 
+      prev.includes(id) ? prev.filter(fid => fid !== id) : [...prev, id]
+    )
+  }
+
+  const handleGeneratePatch = async () => {
+    if (!reviewId || selectedFindingIds.length === 0) return
+    
+    setIsGeneratingPatch(true)
+    try {
+      const data = await generatePatch(reviewId, selectedFindingIds)
+      setPatchData(data)
+      setShowDiffModal(true)
+    } catch (err) {
+      console.error('Failed to generate patch:', err)
+    } finally {
+      setIsGeneratingPatch(false)
+    }
+  }
+
+  const handleApplyLocally = async () => {
+    if (!reviewId || !patchData) return
+    
+    setIsApplying(true)
+    setPrUrl(null)
+    try {
+      const patches: Record<string, string> = {}
+      Object.entries(patchData.patches).forEach(([path, patch]) => {
+        patches[path] = patch.modified
+      })
+      
+      const { success } = await applyPatches(reviewId, patches)
+      if (success) {
+        // setShowDiffModal(false) // Keep modal open to allow pushing to GitHub
+        setSelectedFindingIds([])
+        fetchResults()
+        alert('Patches applied successfully to local repository. You can now push these changes to GitHub.')
+      }
+    } catch (err) {
+      console.error('Failed to apply patches:', err)
+    } finally {
+      setIsApplying(false)
+    }
+  }
+
+  const handlePushToGitHub = async () => {
+    if (!reviewId) return
+    
+    setIsPushing(true)
+    try {
+      const { pr_url } = await pushToGitHub(reviewId)
+      setPrUrl(pr_url)
+    } catch (err: any) {
+      console.error('Failed to push to GitHub:', err)
+      alert(`Error pushing to GitHub: ${err.response?.data?.detail || err.message}`)
+    } finally {
+      setIsPushing(false)
+    }
   }
 
   const getFileFindings = (filePath: string): ReviewFinding[] => {
@@ -267,6 +337,8 @@ export default function Review() {
                     <AgentComments
                       findings={results.findings}
                       onFindingClick={handleFindingClick}
+                      selectedFindingIds={selectedFindingIds}
+                      onToggleFinding={handleToggleFinding}
                     />
                   </div>
                 </TabsContent>
@@ -374,6 +446,181 @@ export default function Review() {
           </div>
         )}
       </main>
+
+      {/* Floating Action Bar */}
+      {selectedFindingIds.length > 0 && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-primary text-primary-foreground px-6 py-4 rounded-full shadow-2xl border border-white/10 flex items-center gap-6 backdrop-blur-md">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold uppercase tracking-widest opacity-70">Smart Patch Mode</span>
+              <span className="text-sm font-medium">{selectedFindingIds.length} findings selected</span>
+            </div>
+            <div className="h-8 w-[1px] bg-white/20"></div>
+            <Button 
+              onClick={handleGeneratePatch} 
+              disabled={isGeneratingPatch}
+              className="bg-white text-primary hover:bg-gray-100 rounded-full font-bold px-6 h-10 transition-all active:scale-95"
+            >
+              {isGeneratingPatch ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="mr-2 h-4 w-4" />
+                  Generate Fix Patch
+                </>
+              )}
+            </Button>
+            <button 
+              onClick={() => setSelectedFindingIds([])}
+              className="p-1 hover:bg-white/10 rounded-full transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Diff Modal */}
+      {showDiffModal && patchData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl border-white/10 bg-[#0d0d0d]">
+            <CardHeader className="border-b border-white/5 py-4 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xl font-serif text-white">Review Suggested Fixes</CardTitle>
+                <CardDescription className="text-gray-400">
+                  Verify the generated patches before applying them to your codebase.
+                </CardDescription>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => {
+                  setShowDiffModal(false)
+                  setPrUrl(null)
+                }}
+                className="text-gray-400 hover:text-white hover:bg-white/5 rounded-full"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </CardHeader>
+            <CardContent className="flex-grow overflow-hidden p-0">
+              <Tabs defaultValue={Object.keys(patchData.patches)[0]} className="h-full flex flex-col">
+                <div className="px-6 border-b border-white/5 bg-[#151515]">
+                  <TabsList className="bg-transparent h-auto p-0 gap-4 overflow-x-auto no-scrollbar justify-start">
+                    {Object.keys(patchData.patches).map((path) => (
+                      <TabsTrigger 
+                        key={path} 
+                        value={path}
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:bg-transparent data-[state=active]:text-accent px-0 py-4 text-xs font-mono transition-all"
+                      >
+                        {path.split('/').pop()}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+                {Object.entries(patchData.patches).map(([path, patch]) => (
+                  <TabsContent key={path} value={path} className="flex-grow overflow-hidden m-0 p-6 focus-visible:outline-none">
+                    <div className="grid lg:grid-cols-2 gap-6 h-full">
+                      <div className="space-y-3 flex flex-col">
+                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-red-500/50"></span>
+                          Original Implementation
+                        </h4>
+                        <div className="flex-grow bg-[#1e1e1e] rounded-lg border border-white/5 p-4 font-mono text-sm overflow-auto text-gray-400 opacity-60">
+                          <pre><code>{patch.original}</code></pre>
+                        </div>
+                      </div>
+                      <div className="space-y-3 flex flex-col">
+                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-accent flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-accent animate-pulse"></span>
+                          Proposed Patch
+                        </h4>
+                        <DiffViewer 
+                          lineDiff={patch.line_diff} 
+                          fileName={path.split('/').pop() || ''} 
+                        />
+                      </div>
+                    </div>
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </CardContent>
+            <div className="p-6 border-t border-white/5 bg-[#0d0d0d] flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                {prUrl ? (
+                  <a 
+                    href={prUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-accent hover:underline font-bold animate-in fade-in slide-in-from-left-4 duration-500"
+                  >
+                    <Github className="h-4 w-4" />
+                    <span>Pull Request Created</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : (
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                      <span>Safety: High</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      <span>Verified Agent Output</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <Button 
+                  variant="ghost" 
+                  onClick={() => {
+                    setShowDiffModal(false)
+                    setPrUrl(null)
+                  }}
+                  className="text-gray-400 hover:text-white hover:bg-white/5 px-6"
+                >
+                  Reject Fixes
+                </Button>
+                
+                <Button 
+                  onClick={handleApplyLocally}
+                  disabled={isApplying || isPushing}
+                  className="bg-white/5 text-white hover:bg-white/10 px-6 border border-white/10"
+                >
+                  {isApplying ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Applying...
+                    </>
+                  ) : 'Apply Locally'}
+                </Button>
+
+                <Button 
+                  onClick={handlePushToGitHub}
+                  disabled={isPushing || !!prUrl}
+                  className="bg-accent text-accent-foreground hover:bg-accent/90 px-8 font-bold shadow-lg shadow-accent/20"
+                >
+                  {isPushing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Pushing...
+                    </>
+                  ) : (
+                    <>
+                      <Github className="mr-2 h-4 w-4" />
+                      Push to GitHub
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

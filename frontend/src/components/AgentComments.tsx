@@ -6,9 +6,16 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './
 interface AgentCommentsProps {
   findings: ReviewFinding[]
   onFindingClick?: (finding: ReviewFinding) => void
+  selectedFindingIds?: string[]
+  onToggleFinding?: (findingId: string) => void
 }
 
-export default function AgentComments({ findings, onFindingClick }: AgentCommentsProps) {
+export default function AgentComments({ 
+  findings, 
+  onFindingClick,
+  selectedFindingIds = [],
+  onToggleFinding
+}: AgentCommentsProps) {
   const groupedFindings = findings.reduce((acc, finding) => {
     const category = finding.category || 'General'
     if (!acc[category]) {
@@ -57,11 +64,19 @@ export default function AgentComments({ findings, onFindingClick }: AgentComment
                 return (
                   <div
                     key={finding.id}
-                    className={`group relative bg-white border border-border/50 border-l-4 ${getAgentColor(finding.agent_name)} rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:border-accent/20 transition-all duration-300 cursor-pointer`}
+                    className={`group relative bg-white border border-border/50 border-l-4 ${getAgentColor(finding.agent_name)} rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:border-accent/20 transition-all duration-300 cursor-pointer ${selectedFindingIds.includes(finding.id) ? 'ring-2 ring-accent/30 bg-accent/5' : ''}`}
                     onClick={() => onFindingClick?.(finding)}
                   >
                   <div className="p-5 sm:p-6">
                     <div className="flex items-start justify-between gap-4 mb-4">
+                      <div className="flex items-center gap-3 mt-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedFindingIds.includes(finding.id)}
+                          onChange={() => onToggleFinding?.(finding.id)}
+                          className="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent cursor-pointer"
+                        />
+                      </div>
                       <div className="flex-grow space-y-1.5">
                         <div className="flex items-center gap-3">
                           <SeverityBadge severity={finding.severity} />

@@ -17,7 +17,7 @@ class LLMService:
         system_prompt: str,
         user_prompt: str,
         temperature: Optional[float] = None,
-        max_tokens: int = 2048
+        max_tokens: int = 1024
     ) -> str:
         """Generate a response from the LLM"""
         if temperature is None:
@@ -42,18 +42,21 @@ class LLMService:
                 )
                 response.raise_for_status()
                 return response.json()["response"]
+        except httpx.HTTPStatusError as e:
+            logger.error(f"LLM request failed with status {e.response.status_code}: {e.response.text}")
+            return ""
         except httpx.TimeoutException:
             logger.error("LLM request timed out")
-            raise
+            return ""
         except Exception:
             logger.exception("LLM request failed")
-            raise
+            return ""
     
     async def chat(
         self,
         messages: list,
         temperature: Optional[float] = None,
-        max_tokens: int = 2048
+        max_tokens: int = 1024
     ) -> str:
         """Chat completion with message history"""
         if temperature is None:
@@ -77,15 +80,19 @@ class LLMService:
                 )
                 response.raise_for_status()
                 return response.json()["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Chat request failed with status {e.response.status_code}")
+            return ""
         except Exception:
             logger.exception("Chat request failed")
-            raise
+            return ""
     
     def generate_sync(
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        max_tokens: int = 1024
     ) -> str:
         """Synchronous version of generate"""
         if temperature is None:
@@ -102,6 +109,7 @@ class LLMService:
                         "stream": False,
                         "options": {
                             "temperature": temperature,
+                            "num_predict": max_tokens,
                             "num_ctx": settings.LLM_CONTEXT_WINDOW
                         }
                     },
@@ -109,9 +117,12 @@ class LLMService:
                 )
                 response.raise_for_status()
                 return response.json()["response"]
+        except httpx.HTTPStatusError as e:
+            logger.error(f"LLM sync request failed with status {e.response.status_code}")
+            return ""
         except Exception:
             logger.exception("LLM request failed")
-            raise
+            return ""
     
     async def is_available(self) -> bool:
         """Check if the LLM service is available and model is pulled"""

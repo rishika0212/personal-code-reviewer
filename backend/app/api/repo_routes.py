@@ -8,7 +8,7 @@ from utils.logger import logger
 router = APIRouter()
 
 
-@router.post("/github", response_model=RepoInfo)
+@router.post("/repo/github", response_model=RepoInfo)
 async def upload_github_repo(repo_input: RepoInput):
     """Clone and index a GitHub repository"""
     try:
@@ -19,7 +19,7 @@ async def upload_github_repo(repo_input: RepoInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/upload")
+@router.post("/repo/upload")
 async def upload_files(files: list[UploadFile] = File(...)):
     """Upload local files for review"""
     try:
@@ -36,7 +36,7 @@ async def upload_files(files: list[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/files/{repo_id}")
+@router.get("/repo/files/{repo_id}")
 async def get_repo_files(repo_id: str):
     """Get list of files in a repository"""
     try:
@@ -48,7 +48,7 @@ async def get_repo_files(repo_id: str):
         raise HTTPException(status_code=404, detail="Repository not found")
 
 
-@router.get("/content/{repo_id}")
+@router.get("/repo/content/{repo_id}")
 async def get_file_content(repo_id: str, path: str):
     """Get content of a file in a repository"""
     try:

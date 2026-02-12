@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from agents.code_analyzer import CodeAnalyzerAgent
 from agents.security_agent import SecurityAgent
 from agents.optimization_agent import OptimizationAgent
+from agents.patch_generator import PatchGeneratorAgent
 from agents.base_agent import AgentFinding
 from services.llm_service import LLMService
 from indexing.chunker import CodeChunker, CodeChunk
@@ -40,6 +41,7 @@ class ReviewManager:
             SecurityAgent(),
             OptimizationAgent()
         ]
+        self.patch_generator = PatchGeneratorAgent()
         self.chunker = CodeChunker()
         self.embeddings = EmbeddingService()
         self.llm = LLMService()
@@ -403,9 +405,17 @@ class ReviewManager:
                 code_snippet=finding.code_snippet
             ))
         
+        # Try to get repo URL if available
+        repo_url = None
+        try:
+            repo_url = self.github_loader.get_repo_url(request.repo_id)
+        except:
+            pass
+
         return ReviewResponse(
             review_id=review_id,
             repo_id=request.repo_id,
+            repo_url=repo_url,
             status="completed",
             total_findings=len(findings),
             severity_counts=severity_counts,
@@ -428,6 +438,135 @@ class ReviewManager:
         if review_id not in self._results:
             raise ValueError(f"Results for review {review_id} not found")
         return self._results[review_id]
+
+    async def generate_patch(
+        self,
+        review_id: str,
+        finding_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Generate a patch for selected findings"""
+        results = self.get_review_results(review_id)
+        
+        # Filter findings by IDs
+        selected_findings = [f for f in results.findings if f.id in finding_ids]
+        if not selected_findings:
+            raise ValueError("No matching findings found")
+            
+        # Group findings by file
+        files_to_patch = {}
+        for f in selected_findings:
+            if f.file_path not in files_to_patch:
+                files_to_patch[f.file_path] = []
+            files_to_patch[f.file_path].append(f)
+            
+        patches = {}
+        for file_path, file_findings in files_to_patch.items():
+            # Load original file content
+            try:
+                original_code = await asyncio.to_thread(
+                    self.github_loader.get_file_content,
+                    results.repo_id,
+                    file_path
+                )
+                
+                if not original_code:
+                    logger.error(f"Could not load content for {file_path}")
+                    continue
+                
+                # Apply patches one by one
+                current_code = original_code
+                file_confidences = []
+                
+                for finding in file_findings:
+                    # Generate patch for this specific finding
+                    patch_result = await self.patch_generator.generate_patch(
+                        file_path,
+                        current_code,
+                        finding
+                    )
+                    
+                    patch = patch_result["patch"]
+                    original_snippet = patch_result["original_snippet"]
+                    confidence = patch_result["confidence"]
+                    
+                    if original_snippet in current_code:
+                        # Replace the snippet with the patch
+                        current_code = current_code.replace(original_snippet, patch, 1)
+                        file_confidences.append(confidence)
+                    else:
+                        logger.warning(f"Could not find snippet in {file_path} for finding {finding.id}. Code might have changed.")
+                
+                modified_code = current_code
+                
+                # Compute diff
+                from services.diff_service import DiffService
+                diff = DiffService.compute_diff(original_code, modified_code)
+                line_diff = DiffService.compute_line_diff(original_code, modified_code)
+                
+                # Calculate average confidence for the file
+                avg_confidence = sum(file_confidences) / len(file_confidences) if file_confidences else 0.0
+                
+                patches[file_path] = {
+                    "original": original_code,
+                    "modified": modified_code,
+                    "diff": diff,
+                    "line_diff": line_diff,
+                    "confidence": avg_confidence
+                }
+            except Exception as e:
+                logger.error(f"Failed to generate patch for {file_path}: {e}")
+                
+        return {
+            "review_id": review_id,
+            "patches": patches
+        }
+
+    async def apply_patches(
+        self,
+        review_id: str,
+        patches: Dict[str, str]
+    ) -> bool:
+        """Apply patches to the repository"""
+        results = self.get_review_results(review_id)
+        repo_id = results.repo_id
+        
+        for file_path, content in patches.items():
+            try:
+                await asyncio.to_thread(
+                    self.github_loader.apply_patch,
+                    repo_id,
+                    file_path,
+                    content
+                )
+            except Exception as e:
+                logger.error(f"Failed to apply patch to {file_path}: {e}")
+                return False
+                
+        return True
+
+    async def push_to_github(
+        self,
+        review_id: str,
+        title: Optional[str] = None,
+        body: Optional[str] = None
+    ) -> str:
+        """Push applied changes to GitHub and create a PR"""
+        results = self.get_review_results(review_id)
+        repo_id = results.repo_id
+        repo_url = results.repo_url
+        
+        if not repo_url:
+            # Fallback if not stored
+            repo_url = self.github_loader.get_repo_url(repo_id)
+            
+        pr_url = await self.github_loader.create_pull_request(
+            repo_id=repo_id,
+            repo_url=repo_url,
+            title=title or "Apply AI fixes from Zencoder",
+            body=body or "This PR applies fixes suggested during the AI code review."
+        )
+        
+        return pr_url
 
 
 # Singleton instance
