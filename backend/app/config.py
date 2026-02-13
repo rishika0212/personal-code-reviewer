@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     
     # GitHub
     GITHUB_TOKEN: str = ""
+    GITHUB_USERNAME: str = ""
     
     # Agent Settings
     MAX_CHUNKS_PER_REVIEW: int = 20

@@ -301,3 +301,4 @@ test-results/
 playwright-report/
 coverage/
 temp/
+backend/data/results.json

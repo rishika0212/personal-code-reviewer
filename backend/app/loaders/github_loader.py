@@ -33,22 +33,63 @@ class GitHubLoader:
                 self._repos[item.name] = item
                 logger.info(f"Recovered repository: {item.name}")
     
+    def _get_auth_url(self, url: str) -> str:
+        """Helper to format authenticated GitHub URL correctly, stripping existing credentials"""
+        if not settings.GITHUB_TOKEN:
+            return url
+            
+        # 1. Remove protocol
+        clean_url = url.replace("https://", "").replace("http://", "")
+        
+        # 2. Remove existing credentials (anything before @)
+        if "@" in clean_url:
+            clean_url = clean_url.split("@", 1)[1]
+            
+        # 3. Remove trailing slashes
+        clean_url = clean_url.rstrip("/")
+        
+        # 4. Ensure .git suffix
+        if not clean_url.endswith(".git"):
+            clean_url = f"{clean_url}.git"
+            
+        # 5. Inject credentials (username:token)
+        # Use 'git' as default username if not provided
+        username = settings.GITHUB_USERNAME or "git"
+        auth = f"{username}:{settings.GITHUB_TOKEN}"
+            
+        return f"https://{auth}@{clean_url}"
+
+    def _mask_url(self, url: str) -> str:
+        """Mask token in URL for logging, preserving username if present"""
+        if "@" in url:
+            try:
+                prefix, rest = url.split("://", 1)
+                auth, domain = rest.split("@", 1)
+                if ":" in auth:
+                    username, _ = auth.split(":", 1)
+                    return f"{prefix}://{username}:***@{domain}"
+                else:
+                    return f"{prefix}://***@{domain}"
+            except Exception:
+                # Fallback to basic masking if URL structure is unexpected
+                return url.split("@")[0].split("://")[0] + "://***@" + url.split("@")[-1]
+        return url
+
     async def clone_repo(self, url: str) -> RepoInfo:
         """Clone a GitHub repository"""
         repo_id = str(uuid.uuid4())[:8]
         target_dir = self.clone_dir / repo_id
         
         try:
-            logger.info(f"Cloning {url} to {target_dir}")
+            masked_url = self._mask_url(url)
+            logger.info(f"Cloning {masked_url} to {target_dir}")
             
             # Clone the repository
-            if settings.GITHUB_TOKEN:
-                # Insert token for private repos
-                url = url.replace("https://", f"https://{settings.GITHUB_TOKEN}@")
+            auth_url = self._get_auth_url(url)
             
             # Use asyncio.to_thread to avoid blocking the event loop with synchronous git clone
             import asyncio
-            repo = await asyncio.to_thread(Repo.clone_from, url, target_dir, depth=1)
+            repo = await asyncio.to_thread(Repo.clone_from, auth_url, target_dir, depth=1)
             
             # Get file list
             files = self._get_code_files(target_dir)
@@ -57,16 +98,19 @@ class GitHubLoader:
             
             return RepoInfo(
                 repo_id=repo_id,
-                name=url.split("/")[-1].replace(".git", ""),
+                name=url.rstrip("/").split("/")[-1].replace(".git", ""),
                 url=url,
                 files_count=len(files),
                 languages=self._detect_languages(files)
             )
         except Exception as e:
-            logger.error(f"Clone failed: {e}")
+            error_msg = str(e)
+            if settings.GITHUB_TOKEN:
+                error_msg = error_msg.replace(settings.GITHUB_TOKEN, "***")
+            logger.error(f"Clone failed: {error_msg}")
             if target_dir.exists():
                 shutil.rmtree(target_dir)
-            raise
+            raise RuntimeError(error_msg)
     
     def get_file_tree(self, repo_id: str) -> List[Dict[str, Any]]:
         """Get the file tree for a repository"""
@@ -132,16 +176,20 @@ class GitHubLoader:
         repo.index.commit(title)
         
         # 3. Push to remote
-        # Update remote URL to include token if not already present
-        origin = repo.remote(name='origin')
-        url = repo_url
-        if "https://" in url and settings.GITHUB_TOKEN:
-            url = url.replace("https://", f"https://{settings.GITHUB_TOKEN}@")
+        auth_url = self._get_auth_url(repo_url)
+        masked_url = self._mask_url(auth_url)
+        logger.info(f"Pushing to {masked_url}")
         
-        origin.set_url(url)
-        
-        # Push in thread to avoid blocking
-        await asyncio.to_thread(origin.push, refspec=f"{branch_name}:{branch_name}")
+        try:
+            # Push using full URL to avoid messing with stored remote config
+            # Use asyncio.to_thread to avoid blocking
+            await asyncio.to_thread(repo.git.push, auth_url, f"{branch_name}:{branch_name}")
+        except Exception as e:
+            error_msg = str(e)
+            if settings.GITHUB_TOKEN:
+                error_msg = error_msg.replace(settings.GITHUB_TOKEN, "***")
+            logger.error(f"Push failed: {error_msg}")
+            raise RuntimeError(error_msg)
         
         # 4. Create PR via GitHub API
         # Extract owner/repo from URL
